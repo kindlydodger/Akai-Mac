@@ -24,7 +24,8 @@ echo "[2/5] Cross-compiling ARM32 Cortex-A17 binaries..."
     -shared -fPIC "$SCRIPT_DIR/mpc_boot_splash.c" -ldl -lpthread -lm -o "$BUILD_DIR/libmpc_boot_splash.so"
 
 echo "[3/5] Generating U-Boot Frame-0 ACV8 splash BGRA..."
-"$BUILD_DIR/mpc_boot_anim_host" --dump-frame0 "$BUILD_DIR/boot_ascii_frame0.bgra" \
+"$BUILD_DIR/mpc_boot_anim_host" --messages "$SCRIPT_DIR/boot_messages.json" \
+    --dump-frame0 "$BUILD_DIR/boot_ascii_frame0.bgra" \
     --progress 0.0 --stage "POWER ON // HAKAI BOOTLOADER..."
 
 if [ "${1:-}" = "--build-only" ]; then
@@ -32,7 +33,7 @@ if [ "${1:-}" = "--build-only" ]; then
     exit 0
 fi
 
-echo "[4/5] Deploying binaries, launch-mpc.sh & early-boot systemd unit to $MPC_HOST..."
+echo "[4/5] Deploying binaries, boot_messages.json, launch-mpc.sh & early-boot systemd unit to $MPC_HOST..."
 ssh -o BatchMode=yes -o ConnectTimeout=8 "$MPC_HOST" \
     "mkdir -p /data/mpc-control /etc/systemd/system/mpc-addins-reload.service.d"
 
@@ -40,6 +41,7 @@ scp -o BatchMode=yes \
     "$BUILD_DIR/mpc_boot_anim" \
     "$BUILD_DIR/libmpc_boot_splash.so" \
     "$BUILD_DIR/boot_ascii_frame0.bgra" \
+    "$SCRIPT_DIR/boot_messages.json" \
     "$MPC_CONTROL_DIR/launch-mpc.sh" \
     "$MPC_HOST:/data/mpc-control/"
 
@@ -54,7 +56,7 @@ scp -o BatchMode=yes \
 ssh -o BatchMode=yes "$MPC_HOST" 'sh -s' <<'REMOTE_EOF'
 set -eu
 chmod 755 /data/mpc-control/mpc_boot_anim /data/mpc-control/libmpc_boot_splash.so /data/mpc-control/launch-mpc.sh
-chmod 644 /etc/systemd/system/mpc-boot-anim.service /etc/systemd/system/mpc-addins-reload.service.d/10-boot-anim.conf
+chmod 644 /data/mpc-control/boot_messages.json /etc/systemd/system/mpc-boot-anim.service /etc/systemd/system/mpc-addins-reload.service.d/10-boot-anim.conf
 
 # Preserve original stock splash backup if missing (never overwrite existing backup!)
 if [ ! -f /data/backups/splash_original_backup.bgra ] && [ -b /dev/mmcblk0p4 ]; then

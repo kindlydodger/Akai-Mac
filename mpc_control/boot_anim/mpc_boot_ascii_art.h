@@ -324,12 +324,14 @@ static inline BootCell boot_eval_face_cell(int col, int row, float progress, flo
     return out;
 }
 
-static inline void boot_render_frame_seeded(
+static inline void boot_render_frame_full(
     uint32_t *canvas_1280x800,
     float progress,
     float anim_t,
     float elapsed_s,
     const char *stage_label,
+    const char *splash_override,
+    const char *tip_label,
     float fade_alpha,
     uint32_t splash_seed
 ) {
@@ -349,16 +351,25 @@ static inline void boot_render_frame_seeded(
     int wink_mode = (progress >= 0.99f) ? 1 : 0;
 
     char hud_r35[BOOT_GRID_COLS + 4];
+    char hud_r37[BOOT_GRID_COLS + 4];
     char hud_r39[BOOT_GRID_COLS + 4];
     char hud_r40[BOOT_GRID_COLS + 4];
     char hud_r41[BOOT_GRID_COLS + 4];
     memset(hud_r35, ' ', sizeof(hud_r35));
+    memset(hud_r37, ' ', sizeof(hud_r37));
     memset(hud_r39, ' ', sizeof(hud_r39));
     memset(hud_r40, ' ', sizeof(hud_r40));
     memset(hud_r41, ' ', sizeof(hud_r41));
 
     float quote_fade = 1.0f;
-    const char *quote = boot_pick_splash_quote(splash_seed, anim_t, progress, &quote_fade);
+    const char *quote = NULL;
+    if (wink_mode) {
+        quote = "BEAT MACHINE ARMED -- DROP THE NEEDLE!";
+    } else if (splash_override && splash_override[0]) {
+        quote = splash_override;
+    } else {
+        quote = boot_pick_splash_quote(splash_seed, anim_t, progress, &quote_fade);
+    }
     int qlen = (int)strlen(quote);
     if (qlen > BOOT_GRID_COLS - 8) qlen = BOOT_GRID_COLS - 8;
     int q_left = (BOOT_GRID_COLS - qlen) / 2;
@@ -369,6 +380,18 @@ static inline void boot_render_frame_seeded(
     uint8_t q_r = (uint8_t)boot_clampf((wink_mode ? 130.0f : 255.0f) * pulse * quote_fade, 0.0f, 255.0f);
     uint8_t q_g = (uint8_t)boot_clampf((wink_mode ? 255.0f : 224.0f) * pulse * quote_fade, 0.0f, 255.0f);
     uint8_t q_b = (uint8_t)boot_clampf((wink_mode ? 160.0f : 64.0f) * pulse * quote_fade, 0.0f, 255.0f);
+
+    int t_left = 0, tlen = 0;
+    if (tip_label && tip_label[0]) {
+        char tip_full[BOOT_GRID_COLS + 4];
+        snprintf(tip_full, sizeof(tip_full), "TIP: %s", tip_label);
+        tlen = (int)strlen(tip_full);
+        if (tlen > BOOT_GRID_COLS - 8) tlen = BOOT_GRID_COLS - 8;
+        t_left = (BOOT_GRID_COLS - tlen) / 2;
+        for (int i = 0; i < tlen; i++) {
+            hud_r37[t_left + i] = tip_full[i];
+        }
+    }
 
     const int bar_left = 20;
     const int bar_w = 72;
@@ -410,6 +433,8 @@ static inline void boot_render_frame_seeded(
             c_lo = 18; c_hi = 107;
         } else if (row == 35) {
             c_lo = q_left; c_hi = q_left + qlen;
+        } else if (row == 37 && tlen > 0) {
+            c_lo = t_left; c_hi = t_left + tlen;
         } else if (row >= 39) {
             c_lo = bar_left; c_hi = BOOT_GRID_COLS;
         } else {
@@ -422,6 +447,11 @@ static inline void boot_render_frame_seeded(
             } else if (row == 35 && hud_r35[col] != ' ') {
                 c.ch = hud_r35[col];
                 c.r = q_r; c.g = q_g; c.b = q_b;
+            } else if (row == 37 && hud_r37[col] != ' ') {
+                c.ch = hud_r37[col];
+                c.r = (col < t_left + 4) ? 235 : 155;
+                c.g = (col < t_left + 4) ? 205 : 208;
+                c.b = (col < t_left + 4) ? 95  : 224;
             } else if (row == 39 && hud_r39[col] != ' ') {
                 c.ch = hud_r39[col];
                 c.r = (col >= bar_left + 40) ? 235 : 190;
@@ -479,6 +509,19 @@ static inline void boot_render_frame_seeded(
             }
         }
     }
+}
+
+static inline void boot_render_frame_seeded(
+    uint32_t *canvas_1280x800,
+    float progress,
+    float anim_t,
+    float elapsed_s,
+    const char *stage_label,
+    float fade_alpha,
+    uint32_t splash_seed
+) {
+    boot_render_frame_full(canvas_1280x800, progress, anim_t, elapsed_s,
+                           stage_label, NULL, NULL, fade_alpha, splash_seed);
 }
 
 static inline void boot_render_frame(

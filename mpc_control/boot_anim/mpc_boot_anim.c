@@ -25,6 +25,16 @@ static void handle_sig(int sig) {
 }
 
 static uint32_t g_canvas[BOOT_SCR_W * BOOT_SCR_H];
+static BootMessageBank g_msg_bank;
+static const char *g_messages_path = MPC_BOOT_MESSAGES_FILE;
+static int g_msg_loaded = 0;
+
+static void ensure_msg_bank(void) {
+    if (!g_msg_loaded) {
+        boot_load_message_bank(&g_msg_bank, g_messages_path);
+        g_msg_loaded = 1;
+    }
+}
 
 #ifdef __linux__
 static void write_pid_file(void) {
@@ -41,8 +51,16 @@ static void remove_pid_file(void) {
 #endif
 
 static int run_dump_frame0(const char *out_path, float progress, const char *stage) {
-    if (!stage || !stage[0]) stage = "POWER ON // HAKAI BOOTLOADER...";
-    boot_render_frame_seeded(g_canvas, progress, 0.0f, 0.0f, stage, 1.0f, 1U);
+    ensure_msg_bank();
+    char auto_stage[MPC_BOOT_MSG_LEN];
+    char splash[MPC_BOOT_MSG_LEN];
+    char tip[MPC_BOOT_MSG_LEN];
+    boot_select_from_bank(&g_msg_bank, 1U, 0.0f, progress, NULL,
+                          auto_stage, sizeof(auto_stage),
+                          splash, sizeof(splash),
+                          tip, sizeof(tip));
+    const char *final_stage = (stage && stage[0]) ? stage : auto_stage;
+    boot_render_frame_full(g_canvas, progress, 0.0f, 0.0f, final_stage, splash, tip, 1.0f, 1U);
     if (boot_write_acv8_bgra(out_path, g_canvas) != 0) {
         fprintf(stderr, "mpc_boot_anim: failed writing ACV8 BGRA to %s\n", out_path);
         return 1;
@@ -53,6 +71,7 @@ static int run_dump_frame0(const char *out_path, float progress, const char *sta
 }
 
 static void print_ansi_frame(float progress, float anim_t, float elapsed_s, const char *stage, int clear_screen) {
+    ensure_msg_bank();
     if (clear_screen) {
         printf("\x1b[H");
     }
@@ -77,8 +96,16 @@ static void print_ansi_frame(float progress, float anim_t, float elapsed_s, cons
         printf("\x1b[0m\n");
     }
 
-    float qf = 1.0f;
-    const char *quote = boot_pick_splash_quote(1U, anim_t, progress, &qf);
+    char bank_stage[MPC_BOOT_MSG_LEN];
+    char splash[MPC_BOOT_MSG_LEN];
+    char tip[MPC_BOOT_MSG_LEN];
+    boot_select_from_bank(&g_msg_bank, 1U, anim_t, progress, NULL,
+                          bank_stage, sizeof(bank_stage),
+                          splash, sizeof(splash),
+                          tip, sizeof(tip));
+    const char *quote = wink_mode ? "BEAT MACHINE ARMED -- DROP THE NEEDLE!" : splash;
+    const char *active_stage = (stage && stage[0]) ? stage : bank_stage;
+
     int qlen = (int)strlen(quote);
     int pad = (88 - qlen) / 2;
     if (pad < 2) pad = 2;
@@ -88,6 +115,7 @@ static void print_ansi_frame(float progress, float anim_t, float elapsed_s, cons
     } else {
         printf("\x1b[38;2;255;224;64m%s\x1b[0m\n", quote);
     }
+    printf("\x1b[38;2;130;210;230m  TIP: %s\x1b[0m\n", tip);
 
     int bar_w = 54;
     int filled = (int)(progress * (float)bar_w + 0.5f);
@@ -101,33 +129,25 @@ static void print_ansi_frame(float progress, float anim_t, float elapsed_s, cons
             printf("\x1b[38;2;75;78;88m:");
         }
     }
-    printf("\x1b[0m] [%3d%%]\n  > %s\n", pct_int, stage ? stage : "");
+    printf("\x1b[0m] [%3d%%]\n  > %s\n", pct_int, active_stage);
     fflush(stdout);
 }
 
 static int run_ansi_preview(float duration_s, int steps, int single_progress_flag, float single_progress) {
+    ensure_msg_bank();
     if (single_progress_flag) {
         print_ansi_frame(single_progress, single_progress * 18.0f, single_progress * 23.0f,
-                         single_progress >= 0.99f ? "MPC LIVE READY" : "LOADING SYNTH PLUGINS & ALSA...", 0);
+                         single_progress >= 0.99f ? "MPC LIVE READY" : NULL, 0);
         return 0;
     }
     if (steps < 2) steps = 40;
     useconds_t delay_us = (useconds_t)((duration_s / (float)steps) * 1e6f);
     if (delay_us < 15000) delay_us = 15000;
     printf("\x1b[2J");
-    const char *stages[] = {
-        "MOUNTING OVERLAYFS & KERNEL...",
-        "INITIALIZING DRM & DISPLAY...",
-        "LAUNCHING MPC ENGINE...",
-        "SCANNING SYNTH PLUGINS & ALSA...",
-        "BINDING CONTROL SURFACE & MIDI...",
-        "MPC LIVE READY"
-    };
     for (int i = 0; i <= steps && !g_stop; i++) {
         float p = (float)i / (float)steps;
         float t = p * duration_s * 2.5f;
-        int si = (p >= 0.99f) ? 5 : (int)(p * 4.99f);
-        print_ansi_frame(p, t, p * 23.0f, stages[si], 1);
+        print_ansi_frame(p, t, p * 23.0f, (p >= 0.99f) ? "MPC LIVE READY" : NULL, 1);
         if (i < steps) usleep(delay_us);
     }
     printf("\x1b[0m\n");
@@ -197,6 +217,7 @@ static int run_fb_daemon(int force_warm, int daemonize, float max_wait_s) {
         boot_write_shm_state(&st, MPC_BOOT_SHM_STATE);
     }
 
+    ensure_msg_bank();
     double start_wall = boot_now_mono_s();
     double next_deadline = 0.0;
 
@@ -211,12 +232,18 @@ static int run_fb_daemon(int force_warm, int daemonize, float max_wait_s) {
         }
 
         float elapsed_s = 0.0f;
-        char stage[96];
-        float progress = boot_eval_progress_and_stage(&st, &prof, 0, 0, &elapsed_s, stage, sizeof(stage));
+        char fallback_stage[96];
+        float progress = boot_eval_progress_and_stage(&st, &prof, 0, 0, &elapsed_s, fallback_stage, sizeof(fallback_stage));
         // Unified anim_t directly equals elapsed_s from BootShmState so DRM handoff has 0.0ms jump!
         float anim_t = elapsed_s;
 
-        boot_render_frame_seeded(g_canvas, progress, anim_t, elapsed_s, stage, 1.0f, st.splash_seed);
+        char stage[MPC_BOOT_MSG_LEN];
+        char splash[MPC_BOOT_MSG_LEN];
+        char tip[MPC_BOOT_MSG_LEN];
+        boot_select_from_bank(&g_msg_bank, st.splash_seed, anim_t, progress, NULL,
+                              stage, sizeof(stage), splash, sizeof(splash), tip, sizeof(tip));
+
+        boot_render_frame_full(g_canvas, progress, anim_t, elapsed_s, stage, splash, tip, 1.0f, st.splash_seed);
         boot_rotate_canvas_to_phys(g_canvas, fb_ptr, stride_u32);
 
         boot_pace_frame(&next_deadline, 1.0 / 30.0); // Locked smooth 30 FPS
@@ -269,11 +296,13 @@ int main(int argc, char **argv) {
             dump_stage = argv[++i];
         } else if (strcmp(argv[i], "--dump-frame0") == 0 && i + 1 < argc) {
             dump_path = argv[++i];
+        } else if (strcmp(argv[i], "--messages") == 0 && i + 1 < argc) {
+            g_messages_path = argv[++i];
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             printf("Usage:\n"
-                   "  mpc_boot_anim --fb [--bg] [--warm] [--max-wait SEC]\n"
-                   "  mpc_boot_anim --dump-frame0 OUT.bgra [--progress F] [--stage STR]\n"
-                   "  mpc_boot_anim --ansi [--duration SEC] [--steps N] [--progress F]\n");
+                   "  mpc_boot_anim --fb [--bg] [--warm] [--max-wait SEC] [--messages JSON]\n"
+                   "  mpc_boot_anim --dump-frame0 OUT.bgra [--progress F] [--stage STR] [--messages JSON]\n"
+                   "  mpc_boot_anim --ansi [--duration SEC] [--steps N] [--progress F] [--messages JSON]\n");
             return 0;
         }
     }

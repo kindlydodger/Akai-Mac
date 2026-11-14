@@ -1499,5 +1499,104 @@ class TestBootAnim(unittest.TestCase):
         self.assertTrue((boot_dir / "10-boot-anim.conf").is_file())
 
 
+class TestBootMessages(unittest.TestCase):
+    def test_boot_messages_schema_and_selector(self):
+        import datetime as dt
+        import importlib.util
+        import os
+        import random
+        import subprocess
+
+        boot_dir = os.path.join(os.path.dirname(__file__), "boot_anim")
+        json_path = os.path.join(boot_dir, "boot_messages.json")
+        mod_path = os.path.join(boot_dir, "boot_message_selector.py")
+        self.assertTrue(os.path.isfile(json_path))
+        self.assertTrue(os.path.isfile(mod_path))
+
+        spec = importlib.util.spec_from_file_location("boot_message_selector", mod_path)
+        selector = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(selector)
+
+        data = selector.load_boot_messages(json_path)
+        stages = data["boot_stages"]
+        tips = data["tips"]
+        splashes = data["splashes"]
+        triggers = data["special_triggers"]
+
+        self.assertGreaterEqual(len(stages), 12)
+        self.assertGreaterEqual(
+            set(tips.keys()),
+            {"beginner_tips", "sampling_tips", "groove_and_mix_tips"},
+        )
+        all_tips = [m for lst in tips.values() for m in lst]
+        self.assertGreaterEqual(len(all_tips), 20)
+        self.assertGreaterEqual(len(splashes), 30)
+        self.assertGreaterEqual(len(triggers), 6)
+
+        def assert_ascii(s):
+            self.assertTrue(all(32 <= ord(c) <= 126 for c in s), f"Non-ASCII in {s!r}")
+
+        for s in stages:
+            assert_ascii(s)
+            self.assertLessEqual(len(s), 50, s)
+        for s in splashes:
+            assert_ascii(s)
+            self.assertLessEqual(len(s), 50, s)
+        for s in all_tips:
+            assert_ascii(s)
+            self.assertLessEqual(len(s), 90, s)
+        for tr in triggers:
+            for s in tr["messages"]:
+                assert_ascii(s)
+                self.assertLessEqual(len(s), 55, s)
+
+        rng = random.Random(42)
+        # Date priority (100) must beat late-night time_range priority (50)
+        dilla_night = selector.select_boot_messages(
+            data, progress=0.0, now=dt.datetime(2026, 2, 7, 2, 30), rng=rng
+        )
+        self.assertEqual(dilla_night["splash_source"], "special:j_dilla_day")
+        self.assertEqual(dilla_night["stage"], stages[0])
+
+        cases = [
+            (dt.datetime(2026, 8, 11, 14, 0), "special:hiphop_birthday"),
+            (dt.datetime(2026, 10, 31, 20, 0), "special:halloween_808"),
+            (dt.datetime(2026, 12, 24, 12, 0), "special:holiday_winter"),
+            (dt.datetime(2026, 12, 25, 18, 0), "special:holiday_winter"),
+            (dt.datetime(2026, 12, 31, 23, 30), "special:new_year_loop"),
+            (dt.datetime(2026, 1, 1, 12, 0), "special:new_year_loop"),
+            (dt.datetime(2026, 5, 15, 1, 0), "special:late_night_beat_session"),
+            (dt.datetime(2026, 5, 15, 4, 59), "special:late_night_beat_session"),
+            (dt.datetime(2026, 5, 15, 5, 0), "splash"),
+            (dt.datetime(2026, 5, 15, 15, 0), "splash"),
+        ]
+        for when, expected_src in cases:
+            sel = selector.select_boot_messages(data, progress=0.5, now=when, rng=rng)
+            self.assertEqual(sel["splash_source"], expected_src, f"Failed for {when}")
+
+        done_sel = selector.select_boot_messages(
+            data,
+            progress=1.0,
+            now=dt.datetime(2026, 5, 15, 15, 0),
+            tip_category="sampling_tips",
+            rng=rng,
+        )
+        self.assertEqual(done_sel["stage"], stages[-1])
+        self.assertEqual(done_sel["tip_category"], "sampling_tips")
+        self.assertIn(done_sel["tip"], tips["sampling_tips"])
+
+        host_bin = os.path.join(boot_dir, "build", "mpc_boot_anim_host")
+        if os.path.isfile(host_bin):
+            res = subprocess.run(
+                [host_bin, "--messages", json_path, "--ansi", "--progress", "0.5"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            self.assertIn("TIP:", res.stdout)
+            self.assertIn("MPC LIVE // HAKAI OS", res.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

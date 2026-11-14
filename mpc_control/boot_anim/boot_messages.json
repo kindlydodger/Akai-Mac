@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "description": "Minecraft-inspired 4-layer loading text database for Akai MPC Live / Hakai OS boot animation.",
+  "constraints": {
+    "boot_stages_max_chars": 50,
+    "splashes_max_chars": 50,
+    "tips_max_chars": 90,
+    "special_triggers_max_chars": 55
+  },
+  "boot_stages": [
+    "Waking Cortex-A17 & checking sample RAM...",
+    "Calibrating 16 velocity-sensitive pads...",
+    "Warming up DSP engine & 44.1kHz clock...",
+    "Allocating low-latency ALSA ring buffers...",
+    "Scanning SD crates & internal sample vault...",
+    "Indexing chopped WAVs & stereo slices...",
+    "Wiring MIDI clock & phantom groovebus...",
+    "Oiling Q-Link encoders & virtual faders...",
+    "Dusting off virtual vinyl crackle LUTs...",
+    "Locking Note Repeat to internal swing...",
+    "Verifying 64-voice polyphony headroom...",
+    "Teaching step sequencer to skip the 1...",
+    "Polishing pad LEDs for studio glow...",
+    "Mounting JUCE workspace... drop it!"
+  ],
+  "tips": {
+    "beginner_tips": [
+      "Hold 16 LEVELS to spread one crisp drum hit across a full melodic scale.",
+      "Use PAD BANKS A-H to keep drums, basses, and chops neatly organized.",
+      "Hold NOTE REPEAT + tap a timing division for instant hi-hat rolls.",
+      "Assign open & closed hi-hats to the same MUTE GROUP for natural choking.",
+      "Hold ERASE while holding a pad to wipe only that sound from the loop.",
+      "Double-tap STOP to silence lingering synth tails and FX feedback.",
+      "Tap MAIN + Browse anytime to rescue yourself out of deep submenus.",
+      "Rename your first 4 programs early; 'Program 01' won't jog your memory."
+    ],
+    "sampling_tips": [
+      "Slice slightly ahead of transients, or turn on Zero-Crossing to kill clicks.",
+      "Resample at 12-bit or pitch down +2/-3 semitones for instant gritty boom-bap.",
+      "A gentle 10ms amp envelope release turns harsh chops into smooth loops.",
+      "Keep one pad mono & bass-heavy while panning ghost percussion slightly wide.",
+      "Time-stretch vocal phrases first, then pitch by ear till they sit in pocket.",
+      "Sweep a resonant low-pass filter on muddy samples to uncover warm sub bass.",
+      "Layer a tiny room snare under a dry rimshot to build your signature snap.",
+      "Record room ambience or vinyl dust; silence between chops glues the beat."
+    ],
+    "groove_and_mix_tips": [
+      "Dial Swing between 54% and 62% for classic head-nod without rushing.",
+      "Turn OFF Time Correct on snares; a few ticks late makes the pocket deep.",
+      "Leave at least -6 dB master headroom so your 808s breathe before limiting.",
+      "Adjust pad velocity curves before reaching for harsh bus compression.",
+      "Subtle bus glue compression on the drum group unites separate kits.",
+      "Trim low-end rumble under 30Hz on kicks so sub-bass hits cleanly.",
+      "Sidechain pads lightly to the kick to let punchy drums stay front row.",
+      "Mute half your tracks on bar 4; contrast hits harder than stacking layers."
+    ]
+  },
+  "splashes": [
+    "16 pads, zero sleep!",
+    "62% swing or bust!",
+    "MPC3000 energy inside!",
+    "Also try SP-404!",
+    "Also try an ASR-10!",
+    "Dusty vinyl approved!",
+    "Crate digging intensifies!",
+    "Don't quantize the snare!",
+    "That 4-bar loop stays!",
+    "MPC60 grit, modern brains!",
+    "2000XL muscle memory active",
+    "12-bit soul in a 32-bit box",
+    "Unquantized by choice!",
+    "Pad 1 is always the kick!",
+    "Respect the pocket!",
+    "Samples cleared in spirit.",
+    "Boom-bap science division!",
+    "Stank face guaranteed!",
+    "Roger Linn walked so pads could fly",
+    "92 BPM state of mind",
+    "Full Level: ON. Mercy: OFF.",
+    "Zero-crossing ninja!",
+    "Found that rare snare!",
+    "Keep it hardware (sorry DAW)!",
+    "Floppy disk nostalgia included!",
+    "Trimmed at bar 4, bar 5 is chaos",
+    "Chopping since 1988!",
+    "Warning: sudden head nodding",
+    "No click track required!",
+    "808s and calibrated breaks!",
+    "Lo-fi is a valid architecture",
+    "Note Repeat: engage fingers!",
+    "More cowbell? No, more rimshot.",
+    "Analog warmth emulated with love"
+  ],
+  "special_triggers": [
+    {
+      "id": "j_dilla_day",
+      "priority": 100,
+      "type": "date",
+      "dates": ["02-07"],
+      "messages": [
+        "Happy Dilla Day! Turn Time Correct OFF.",
+        "Feb 7: Swing unquantized, Donuts forever."
+      ]
+    },
+    {
+      "id": "hiphop_birthday",
+      "priority": 95,
+      "type": "date",
+      "dates": ["08-11"],
+      "messages": [
+        "Happy Hip-Hop Birthday! 1973 Sedgwick Ave!",
+        "Aug 11: Two turntables & break out the wax!"
+      ]
+    },
+    {
+      "id": "halloween_808",
+      "priority": 90,
+      "type": "date",
+      "dates": ["10-31"],
+      "messages": [
+        "Spooky 808s & minor-key chops tonight!",
+        "Trick or beat: watch that haunted sub-bass!"
+      ]
+    },
+    {
+      "id": "holiday_winter",
+      "priority": 90,
+      "type": "date",
+      "dates": ["12-24", "12-25"],
+      "messages": [
+        "Warm vinyl crackling by the studio hearth!",
+        "Silent night, dusty drums, merry beatmas!"
+      ]
+    },
+    {
+      "id": "new_year_loop",
+      "priority": 90,
+      "type": "date",
+      "dates": ["12-31", "01-01"],
+      "messages": [
+        "New year, fresh 4-bar loop! Reset bar 1!",
+        "365 days of unquantized pocket ahead!"
+      ]
+    },
+    {
+      "id": "late_night_beat_session",
+      "priority": 50,
+      "type": "time_range",
+      "start_hour": 1,
+      "end_hour": 5,
+      "messages": [
+        "02:00 AM studio rule: don't touch the snare.",
+        "Midnight crate digger shift: headphones on!",
+        "Late night beat cookup: sleep is overrated.",
+        "Past 1 AM... one more 4-bar tweak?"
+      ]
+    }
+  ]
+}

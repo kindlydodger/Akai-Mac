@@ -313,3 +313,460 @@ static inline int boot_write_acv8_bgra(const char *out_path, const uint32_t *can
     free(phys);
     return (written == expected) ? 0 : -1;
 }
+
+// =========================================================================
+// 4-Layer Minecraft-Style Boot Message Bank (JSON Loader & Priority Selector)
+// =========================================================================
+#define MPC_BOOT_MESSAGES_FILE   "/data/mpc-control/boot_messages.json"
+#define MPC_BOOT_MAX_STAGES      32
+#define MPC_BOOT_MAX_TIPS        64
+#define MPC_BOOT_MAX_SPLASHES    64
+#define MPC_BOOT_MAX_TRIGGERS    16
+#define MPC_BOOT_MAX_DATES       8
+#define MPC_BOOT_MAX_TRIG_MSGS   8
+#define MPC_BOOT_MSG_LEN         112
+
+typedef enum {
+    BOOT_TRIG_NONE = 0,
+    BOOT_TRIG_DATE = 1,
+    BOOT_TRIG_TIME_RANGE = 2
+} BootTriggerType;
+
+typedef struct {
+    char id[32];
+    int priority;
+    BootTriggerType type;
+    char dates[MPC_BOOT_MAX_DATES][8];
+    int n_dates;
+    int start_hour;
+    int end_hour;
+    char messages[MPC_BOOT_MAX_TRIG_MSGS][MPC_BOOT_MSG_LEN];
+    int n_messages;
+} BootSpecialTrigger;
+
+typedef struct {
+    char stages[MPC_BOOT_MAX_STAGES][MPC_BOOT_MSG_LEN];
+    int n_stages;
+    char tips[MPC_BOOT_MAX_TIPS][MPC_BOOT_MSG_LEN];
+    int n_tips;
+    char splashes[MPC_BOOT_MAX_SPLASHES][MPC_BOOT_MSG_LEN];
+    int n_splashes;
+    BootSpecialTrigger triggers[MPC_BOOT_MAX_TRIGGERS];
+    int n_triggers;
+    int loaded_from_file;
+} BootMessageBank;
+
+static inline void boot_copy_str(char *dst, size_t cap, const char *src) {
+    if (!dst || cap == 0) return;
+    if (!src) {
+        dst[0] = '\0';
+        return;
+    }
+    size_t n = strlen(src);
+    if (n >= cap) n = cap - 1;
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
+static inline void boot_json_skip_ws(const char **p) {
+    const char *s = *p;
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') s++;
+    *p = s;
+}
+
+static inline int boot_json_expect(const char **p, char ch) {
+    boot_json_skip_ws(p);
+    if (**p != ch) return -1;
+    (*p)++;
+    return 0;
+}
+
+static inline int boot_json_parse_string(const char **p, char *out, int cap) {
+    boot_json_skip_ws(p);
+    const char *s = *p;
+    if (*s != '"') return -1;
+    s++;
+    int len = 0;
+    while (*s && *s != '"') {
+        unsigned char ch = (unsigned char)*s++;
+        if (ch == '\\' && *s) {
+            char esc = *s++;
+            if (esc == '"' || esc == '\\' || esc == '/') ch = (unsigned char)esc;
+            else if (esc == 'n' || esc == 'r' || esc == 't') ch = ' ';
+            else if (esc == 'b' || esc == 'f') ch = ' ';
+            else if (esc == 'u') {
+                for (int k = 0; k < 4 && *s; k++) s++;
+                ch = '?';
+            } else {
+                ch = (unsigned char)esc;
+            }
+        }
+        if (out && len + 1 < cap) {
+            out[len++] = (char)ch;
+        }
+    }
+    if (out && cap > 0) out[len] = '\0';
+    if (*s != '"') return -1;
+    *p = s + 1;
+    return 0;
+}
+
+static inline int boot_json_parse_int(const char **p, int *out) {
+    boot_json_skip_ws(p);
+    char *endptr = NULL;
+    long v = strtol(*p, &endptr, 10);
+    if (endptr == *p) return -1;
+    *out = (int)v;
+    *p = endptr;
+    return 0;
+}
+
+static inline int boot_json_skip_value(const char **p, int depth) {
+    if (depth > 16) return -1;
+    boot_json_skip_ws(p);
+    char ch = **p;
+    if (ch == '"') {
+        return boot_json_parse_string(p, NULL, 0);
+    }
+    if (ch == '{') {
+        (*p)++;
+        boot_json_skip_ws(p);
+        if (**p == '}') { (*p)++; return 0; }
+        while (**p) {
+            if (boot_json_parse_string(p, NULL, 0) != 0) return -1;
+            if (boot_json_expect(p, ':') != 0) return -1;
+            if (boot_json_skip_value(p, depth + 1) != 0) return -1;
+            boot_json_skip_ws(p);
+            if (**p == ',') { (*p)++; continue; }
+            if (**p == '}') { (*p)++; return 0; }
+            return -1;
+        }
+        return -1;
+    }
+    if (ch == '[') {
+        (*p)++;
+        boot_json_skip_ws(p);
+        if (**p == ']') { (*p)++; return 0; }
+        while (**p) {
+            if (boot_json_skip_value(p, depth + 1) != 0) return -1;
+            boot_json_skip_ws(p);
+            if (**p == ',') { (*p)++; continue; }
+            if (**p == ']') { (*p)++; return 0; }
+            return -1;
+        }
+        return -1;
+    }
+    const char *s = *p;
+    while (*s && *s != ',' && *s != '}' && *s != ']' &&
+           *s != ' ' && *s != '\t' && *s != '\r' && *s != '\n') {
+        s++;
+    }
+    if (s == *p) return -1;
+    *p = s;
+    return 0;
+}
+
+static inline int boot_json_parse_str_list(
+    const char **p, char *dst_base, int stride, int *count, int max_count
+) {
+    if (boot_json_expect(p, '[') != 0) return -1;
+    boot_json_skip_ws(p);
+    if (**p == ']') { (*p)++; return 0; }
+    while (**p) {
+        if (*count < max_count) {
+            char *slot = dst_base + (*count) * stride;
+            if (boot_json_parse_string(p, slot, stride) != 0) return -1;
+            if (slot[0]) (*count)++;
+        } else {
+            if (boot_json_skip_value(p, 0) != 0) return -1;
+        }
+        boot_json_skip_ws(p);
+        if (**p == ',') { (*p)++; continue; }
+        if (**p == ']') { (*p)++; return 0; }
+        return -1;
+    }
+    return -1;
+}
+
+static inline int boot_json_parse_trigger(const char **p, BootSpecialTrigger *tr) {
+    memset(tr, 0, sizeof(*tr));
+    if (boot_json_expect(p, '{') != 0) return -1;
+    boot_json_skip_ws(p);
+    if (**p == '}') { (*p)++; return 0; }
+
+    while (**p) {
+        char key[32];
+        if (boot_json_parse_string(p, key, (int)sizeof(key)) != 0) return -1;
+        if (boot_json_expect(p, ':') != 0) return -1;
+
+        if (strcmp(key, "id") == 0) {
+            if (boot_json_parse_string(p, tr->id, (int)sizeof(tr->id)) != 0) return -1;
+        } else if (strcmp(key, "priority") == 0) {
+            if (boot_json_parse_int(p, &tr->priority) != 0) return -1;
+        } else if (strcmp(key, "type") == 0) {
+            char tbuf[24];
+            if (boot_json_parse_string(p, tbuf, (int)sizeof(tbuf)) != 0) return -1;
+            if (strcmp(tbuf, "date") == 0) tr->type = BOOT_TRIG_DATE;
+            else if (strcmp(tbuf, "time_range") == 0) tr->type = BOOT_TRIG_TIME_RANGE;
+        } else if (strcmp(key, "dates") == 0) {
+            if (boot_json_parse_str_list(p, &tr->dates[0][0], 8, &tr->n_dates, MPC_BOOT_MAX_DATES) != 0) return -1;
+        } else if (strcmp(key, "start_hour") == 0) {
+            if (boot_json_parse_int(p, &tr->start_hour) != 0) return -1;
+        } else if (strcmp(key, "end_hour") == 0) {
+            if (boot_json_parse_int(p, &tr->end_hour) != 0) return -1;
+        } else if (strcmp(key, "messages") == 0) {
+            if (boot_json_parse_str_list(p, &tr->messages[0][0], MPC_BOOT_MSG_LEN,
+                                         &tr->n_messages, MPC_BOOT_MAX_TRIG_MSGS) != 0) return -1;
+        } else {
+            if (boot_json_skip_value(p, 0) != 0) return -1;
+        }
+
+        boot_json_skip_ws(p);
+        if (**p == ',') { (*p)++; continue; }
+        if (**p == '}') { (*p)++; return 0; }
+        return -1;
+    }
+    return -1;
+}
+
+static inline void boot_populate_bank_fallbacks(BootMessageBank *bank) {
+    static const char *const fb_stages[] = {
+        "Waking Cortex-A17 & checking sample RAM...",
+        "Calibrating 16 velocity-sensitive pads...",
+        "Warming up DSP engine & 44.1kHz clock...",
+        "Scanning SD crates & internal sample vault...",
+        "Binding MIDI clock & control surface...",
+        "Mounting JUCE workspace... drop it!"
+    };
+    static const char *const fb_tips[] = {
+        "Hold 16 LEVELS to spread one crisp drum hit across a full melodic scale.",
+        "Dial Swing between 54% and 62% for classic head-nod without rushing.",
+        "Slice slightly ahead of transients, or turn on Zero-Crossing to kill clicks."
+    };
+    static const char *const fb_splashes[] = {
+        "16 pads, zero sleep!",
+        "62% swing or bust!",
+        "Dusty vinyl approved!",
+        "Also try SP-404!"
+    };
+    if (bank->n_stages == 0) {
+        for (int i = 0; i < (int)(sizeof(fb_stages) / sizeof(fb_stages[0])); i++) {
+            boot_copy_str(bank->stages[bank->n_stages++], MPC_BOOT_MSG_LEN, fb_stages[i]);
+        }
+    }
+    if (bank->n_tips == 0) {
+        for (int i = 0; i < (int)(sizeof(fb_tips) / sizeof(fb_tips[0])); i++) {
+            boot_copy_str(bank->tips[bank->n_tips++], MPC_BOOT_MSG_LEN, fb_tips[i]);
+        }
+    }
+    if (bank->n_splashes == 0) {
+        for (int i = 0; i < (int)(sizeof(fb_splashes) / sizeof(fb_splashes[0])); i++) {
+            boot_copy_str(bank->splashes[bank->n_splashes++], MPC_BOOT_MSG_LEN, fb_splashes[i]);
+        }
+    }
+}
+
+static inline int boot_parse_messages_json(BootMessageBank *bank, const char *json_text) {
+    const char *p = json_text;
+    if (boot_json_expect(&p, '{') != 0) return -1;
+    boot_json_skip_ws(&p);
+    if (*p == '}') return 0;
+
+    while (*p) {
+        char key[32];
+        if (boot_json_parse_string(&p, key, (int)sizeof(key)) != 0) return -1;
+        if (boot_json_expect(&p, ':') != 0) return -1;
+
+        if (strcmp(key, "boot_stages") == 0) {
+            if (boot_json_parse_str_list(&p, &bank->stages[0][0], MPC_BOOT_MSG_LEN,
+                                         &bank->n_stages, MPC_BOOT_MAX_STAGES) != 0) return -1;
+        } else if (strcmp(key, "splashes") == 0) {
+            if (boot_json_parse_str_list(&p, &bank->splashes[0][0], MPC_BOOT_MSG_LEN,
+                                         &bank->n_splashes, MPC_BOOT_MAX_SPLASHES) != 0) return -1;
+        } else if (strcmp(key, "tips") == 0) {
+            if (boot_json_expect(&p, '{') != 0) return -1;
+            boot_json_skip_ws(&p);
+            if (*p != '}') {
+                while (*p) {
+                    char cat[32];
+                    if (boot_json_parse_string(&p, cat, (int)sizeof(cat)) != 0) return -1;
+                    if (boot_json_expect(&p, ':') != 0) return -1;
+                    if (boot_json_parse_str_list(&p, &bank->tips[0][0], MPC_BOOT_MSG_LEN,
+                                                 &bank->n_tips, MPC_BOOT_MAX_TIPS) != 0) return -1;
+                    boot_json_skip_ws(&p);
+                    if (*p == ',') { p++; continue; }
+                    if (*p == '}') { p++; break; }
+                    return -1;
+                }
+            } else {
+                p++;
+            }
+        } else if (strcmp(key, "special_triggers") == 0) {
+            if (boot_json_expect(&p, '[') != 0) return -1;
+            boot_json_skip_ws(&p);
+            if (*p != ']') {
+                while (*p) {
+                    if (bank->n_triggers < MPC_BOOT_MAX_TRIGGERS) {
+                        BootSpecialTrigger tr;
+                        if (boot_json_parse_trigger(&p, &tr) != 0) return -1;
+                        if (tr.type != BOOT_TRIG_NONE && tr.n_messages > 0) {
+                            bank->triggers[bank->n_triggers++] = tr;
+                        }
+                    } else {
+                        if (boot_json_skip_value(&p, 0) != 0) return -1;
+                    }
+                    boot_json_skip_ws(&p);
+                    if (*p == ',') { p++; continue; }
+                    if (*p == ']') { p++; break; }
+                    return -1;
+                }
+            } else {
+                p++;
+            }
+        } else {
+            if (boot_json_skip_value(&p, 0) != 0) return -1;
+        }
+
+        boot_json_skip_ws(&p);
+        if (*p == ',') { p++; continue; }
+        if (*p == '}') break;
+        return -1;
+    }
+
+    // Insertion-sort special triggers by descending priority
+    for (int i = 1; i < bank->n_triggers; i++) {
+        BootSpecialTrigger key_tr = bank->triggers[i];
+        int j = i - 1;
+        while (j >= 0 && bank->triggers[j].priority < key_tr.priority) {
+            bank->triggers[j + 1] = bank->triggers[j];
+            j--;
+        }
+        bank->triggers[j + 1] = key_tr;
+    }
+    return 0;
+}
+
+static inline void boot_load_message_bank(BootMessageBank *bank, const char *path) {
+    memset(bank, 0, sizeof(*bank));
+    const char *candidates[4] = {
+        path,
+        MPC_BOOT_MESSAGES_FILE,
+        "boot_messages.json",
+        "mpc_control/boot_anim/boot_messages.json"
+    };
+    FILE *f = NULL;
+    for (int i = 0; i < 4; i++) {
+        if (!candidates[i] || !candidates[i][0]) continue;
+        f = fopen(candidates[i], "rb");
+        if (f) break;
+    }
+    if (f) {
+        if (fseek(f, 0, SEEK_END) == 0) {
+            long sz = ftell(f);
+            if (sz > 2 && sz <= 262144 && fseek(f, 0, SEEK_SET) == 0) {
+                char *buf = (char *)malloc((size_t)sz + 1);
+                if (buf) {
+                    size_t nread = fread(buf, 1, (size_t)sz, f);
+                    buf[nread] = '\0';
+                    if (boot_parse_messages_json(bank, buf) == 0) {
+                        bank->loaded_from_file = 1;
+                    } else {
+                        memset(bank, 0, sizeof(*bank));
+                    }
+                    free(buf);
+                }
+            }
+        }
+        fclose(f);
+    }
+    boot_populate_bank_fallbacks(bank);
+}
+
+static inline const char *boot_resolve_special_trigger(
+    const BootMessageBank *bank,
+    const struct tm *lt,
+    uint32_t seed,
+    float anim_t,
+    const char **out_id
+) {
+    if (!bank || !lt || bank->n_triggers <= 0) return NULL;
+    char mm_dd[8];
+    snprintf(mm_dd, sizeof(mm_dd), "%02d-%02d", lt->tm_mon + 1, lt->tm_mday);
+    int hour = lt->tm_hour;
+
+    for (int i = 0; i < bank->n_triggers; i++) {
+        const BootSpecialTrigger *tr = &bank->triggers[i];
+        if (tr->n_messages <= 0) continue;
+        int matched = 0;
+        if (tr->type == BOOT_TRIG_DATE) {
+            for (int d = 0; d < tr->n_dates; d++) {
+                if (strcmp(mm_dd, tr->dates[d]) == 0) {
+                    matched = 1;
+                    break;
+                }
+            }
+        } else if (tr->type == BOOT_TRIG_TIME_RANGE) {
+            if (tr->start_hour <= tr->end_hour) {
+                matched = (hour >= tr->start_hour && hour < tr->end_hour);
+            } else {
+                matched = (hour >= tr->start_hour || hour < tr->end_hour);
+            }
+        }
+        if (matched) {
+            if (out_id) *out_id = tr->id;
+            uint32_t step = (anim_t >= 0.0f) ? (uint32_t)(anim_t / 7.0f) : 0U;
+            uint32_t idx = (seed ^ (step * 2654435761U)) % (uint32_t)tr->n_messages;
+            return tr->messages[idx];
+        }
+    }
+    return NULL;
+}
+
+static inline void boot_select_from_bank(
+    const BootMessageBank *bank,
+    uint32_t seed,
+    float anim_t,
+    float progress,
+    const struct tm *override_tm,
+    char *out_stage,
+    size_t stage_cap,
+    char *out_splash,
+    size_t splash_cap,
+    char *out_tip,
+    size_t tip_cap
+) {
+    if (!bank) return;
+    struct tm local_tm;
+    const struct tm *lt = override_tm;
+    if (!lt) {
+        time_t now_t = time(NULL);
+        localtime_r(&now_t, &local_tm);
+        lt = &local_tm;
+    }
+
+    float p = boot_clampf(progress, 0.0f, 1.0f);
+    if (out_stage && stage_cap > 0 && bank->n_stages > 0) {
+        int s_idx = (p >= 0.99f) ? (bank->n_stages - 1) : (int)(p * (float)bank->n_stages);
+        if (s_idx < 0) s_idx = 0;
+        if (s_idx >= bank->n_stages) s_idx = bank->n_stages - 1;
+        boot_copy_str(out_stage, stage_cap, bank->stages[s_idx]);
+    }
+
+    if (out_splash && splash_cap > 0) {
+        const char *sp = boot_resolve_special_trigger(bank, lt, seed, anim_t, NULL);
+        if (!sp && bank->n_splashes > 0) {
+            uint32_t step = (anim_t >= 0.0f) ? (uint32_t)(anim_t / 5.5f) : 0U;
+            uint32_t idx = (seed + step * 7U) % (uint32_t)bank->n_splashes;
+            sp = bank->splashes[idx];
+        }
+        boot_copy_str(out_splash, splash_cap, sp ? sp : "16 pads, zero sleep!");
+    }
+
+    if (out_tip && tip_cap > 0 && bank->n_tips > 0) {
+        uint32_t step = (anim_t >= 0.0f) ? (uint32_t)(anim_t / 8.0f) : 0U;
+        uint32_t h = seed * 2654435761U + step * 1597334677U;
+        uint32_t t_idx = h % (uint32_t)bank->n_tips;
+        boot_copy_str(out_tip, tip_cap, bank->tips[t_idx]);
+    }
+}
+

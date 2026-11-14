@@ -350,9 +350,20 @@ static void inject_overlay_props(drmModeAtomicReqPtr req, uint32_t fb_id) {
     }
 }
 
+static BootMessageBank g_splash_msg_bank;
+static int g_splash_msg_loaded = 0;
+
+static void ensure_splash_msg_bank(void) {
+    if (!g_splash_msg_loaded) {
+        boot_load_message_bank(&g_splash_msg_bank, MPC_BOOT_MESSAGES_FILE);
+        g_splash_msg_loaded = 1;
+    }
+}
+
 static void render_to_bo(SplashDumbBo *bo, float progress, float anim_t, float elapsed_s,
-                         const char *stage, float fade_alpha, uint32_t splash_seed) {
-    boot_render_frame_seeded(g_canvas, progress, anim_t, elapsed_s, stage, fade_alpha, splash_seed);
+                         const char *stage, const char *splash, const char *tip,
+                         float fade_alpha, uint32_t splash_seed) {
+    boot_render_frame_full(g_canvas, progress, anim_t, elapsed_s, stage, splash, tip, fade_alpha, splash_seed);
     int stride_u32 = (int)(bo->pitch / 4U);
     if (stride_u32 < MPC_PHYS_W) stride_u32 = MPC_PHYS_W;
     boot_rotate_canvas_to_phys(g_canvas, bo->map, stride_u32);
@@ -433,9 +444,9 @@ static void *splash_anim_thread(void *arg) {
         // Unified timeline: matches mpc_boot_anim identically so eyes/teeth/quote have zero phase jump!
         float anim_t = elapsed_s;
 
-        char stage[96];
+        char fallback_stage[96];
         float dummy_el = 0.0f;
-        float raw_prog = boot_eval_progress_and_stage(&st, &prof, 1, 0, &dummy_el, stage, sizeof(stage));
+        float raw_prog = boot_eval_progress_and_stage(&st, &prof, 1, 0, &dummy_el, fallback_stage, sizeof(fallback_stage));
 
         int ui_done = (finale_start > 0.0);
         if (!ui_done && elapsed_s >= 42.0f) {
@@ -477,9 +488,6 @@ static void *splash_anim_thread(void *arg) {
             } else {
                 prog = 1.0f;
             }
-            if (prog >= 0.99f) {
-                snprintf(stage, sizeof(stage), "MPC LIVE READY");
-            }
             if (f_dt >= 1.15) {
                 break;
             } else if (f_dt > 0.75) {
@@ -487,8 +495,17 @@ static void *splash_anim_thread(void *arg) {
             }
         }
 
+        char stage[MPC_BOOT_MSG_LEN];
+        char splash[MPC_BOOT_MSG_LEN];
+        char tip[MPC_BOOT_MSG_LEN];
+        boot_select_from_bank(&g_splash_msg_bank, st.splash_seed, anim_t, prog, NULL,
+                              stage, sizeof(stage), splash, sizeof(splash), tip, sizeof(tip));
+        if (finale_start > 0.0 && prog >= 0.99f) {
+            boot_copy_str(stage, sizeof(stage), "MPC LIVE READY");
+        }
+
         int back = g_front_bo ^ 1;
-        render_to_bo(&g_bos[back], prog, anim_t, elapsed_s, stage, fade_alpha, st.splash_seed);
+        render_to_bo(&g_bos[back], prog, anim_t, elapsed_s, stage, splash, tip, fade_alpha, st.splash_seed);
 
         pthread_mutex_lock(&g_drm_lock);
         if (!g_splash_done && real_atomic_alloc && real_atomic_commit) {
@@ -568,10 +585,16 @@ int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *u
             BootShmState st;
             boot_load_timing_profile(&prof, MPC_BOOT_TIMING_FILE);
             boot_init_or_resume_state(&st, MPC_BOOT_SHM_STATE, 1);
+            ensure_splash_msg_bank();
             float el = 0.0f;
-            char stage[96];
-            float p = boot_eval_progress_and_stage(&st, &prof, 1, 0, &el, stage, sizeof(stage));
-            render_to_bo(&g_bos[0], p, el, el, stage, 1.0f, st.splash_seed);
+            char fallback_stage[96];
+            float p = boot_eval_progress_and_stage(&st, &prof, 1, 0, &el, fallback_stage, sizeof(fallback_stage));
+            char stage[MPC_BOOT_MSG_LEN];
+            char splash[MPC_BOOT_MSG_LEN];
+            char tip[MPC_BOOT_MSG_LEN];
+            boot_select_from_bank(&g_splash_msg_bank, st.splash_seed, el, p, NULL,
+                                  stage, sizeof(stage), splash, sizeof(splash), tip, sizeof(tip));
+            render_to_bo(&g_bos[0], p, el, el, stage, splash, tip, 1.0f, st.splash_seed);
             g_front_bo = 0;
 
             if (!g_thread_started) {
