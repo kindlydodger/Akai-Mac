@@ -1,0 +1,15 @@
+{
+  "name": "CHOW Tape Model",
+  "manufacturer": "ChowDSP",
+  "version": "2.10.0",
+  "format": "vst2",
+  "kind": "effect",
+  "uid": "ChTp",
+  "numInputs": 2,
+  "numOutputs": 2,
+  "category": "Mastering",
+  "file32": "VST/chow-tape-model-arm32.so",
+  "file64": "VST/chow-tape-model-arm64.so",
+  "description": "Physical model of an analog reel-to-reel tape machine (Jiles-Atherton magnetic hysteresis, pre/post emphasis tone, tape compression, physical spacing/thickness/gap loss, head bump, wow/flutter with Ornstein-Uhlenbeck drift, and tape chew/degrade) by Jatin Chowdhury, ported to Akai MPC.",
+  "license": "GPL-3.0"
+}

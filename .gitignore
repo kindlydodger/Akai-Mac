@@ -1,0 +1,36 @@
+# Secrets (NEVER commit API keys or local credentials)
+.flow_secrets.json
+**/.flow_secrets.json
+.env
+.env.*
+
+# Python & IDE caches
+.venv-audio/
+__pycache__/
+*.py[cod]
+*.pyo
+.DS_Store
+.pio/
+
+# Upstream SDK clone & Zig toolchain (preserve local edits in patches/sdk_local_mods.patch)
+sdk/
+
+# Large analyzed sample DB & runtime-generated audio/logs
+mpc_control/sample_library/
+mpc_control/flow_banks/
+mpc_control/flow_kits/
+mpc_control/webhook_inbox/
+mpc_control/activity_feed.jsonl
+*.log
+*.pid
+.webhook_server.pid
+
+# Compiled binaries, plugin build artifacts & raw screen/splash images
+mpc_control/bin/
+*.so
+*.dylib
+plugins/*/build/
+plugins/*/dist/
+*.bgra
+*.tar.gz
+*.zip

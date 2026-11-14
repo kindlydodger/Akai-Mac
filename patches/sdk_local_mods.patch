@@ -1,0 +1,98 @@
+# Upstream: https://github.com/inmusic-software/mpc-plugin-builder-sdk
+# Commit: febd2ca5bd9eb16c4a412837196e145566bc981b
+diff --git a/tools/gen_ui.py b/tools/gen_ui.py
+index a3891db..8250974 100755
+--- a/tools/gen_ui.py
++++ b/tools/gen_ui.py
+@@ -347,16 +347,17 @@ def load_ui(path, table):
+         fail(path, "%d pages given; the MPC supports at most %d tabs." % (len(pages_spec), MAX_PAGES))
+ 
+     style = dict(DEFAULT_STYLE)
++    user_style = data.get("style", {})
+     if "style" in data:
+-        if not isinstance(data["style"], dict):
++        if not isinstance(user_style, dict):
+             fail(path + ' "style"', "must be an object of ARGB hex colours")
+-        check_keys(path + ' "style"', data["style"], tuple(DEFAULT_STYLE))
+-        for k, v in data["style"].items():
++        check_keys(path + ' "style"', user_style, tuple(DEFAULT_STYLE))
++        for k, v in user_style.items():
+             if not (isinstance(v, str) and len(v) == 8 and all(ch in "0123456789abcdefABCDEF" for ch in v)):
+                 fail(path + ' "style"', '"%s" must be an 8-digit ARGB hex string like "ff1e1d1e", got %s' % (k, json.dumps(v)))
+             style[k] = v.lower()
+ 
+-    kit = parse_kit(data.get("kit"), path, "accent" in data.get("style", {}), style)
++    kit = parse_kit(data.get("kit"), path, "accent" in user_style, style, user_style)
+ 
+     knob_image = data.get("knobImage")
+     if knob_image is not None and (not isinstance(knob_image, str) or not knob_image.strip()):
+@@ -394,7 +395,7 @@ def load_ui(path, table):
+     return pages, style, knob_image, frames, kit
+ 
+ 
+-def parse_kit(spec, path, accent_in_style, style):
++def parse_kit(spec, path, accent_in_style, style, user_style=None):
+     """Returns None or {"theme": name, "accent": ARGB-or-None}. Also aligns the focus-ring accent with the kit."""
+     if spec is None:
+         return None
+@@ -421,6 +422,14 @@ def parse_kit(spec, path, accent_in_style, style):
+     if not accent_in_style:
+         # The focus ring follows the kit colour unless style.accent was set explicitly.
+         style["accent"] = accent or make_ui_kit.THEMES[theme].lower()
++    if theme == "mpc60-green":
++        us = user_style or {}
++        if "background" not in us:
++            style["background"] = "ff0a1408"
++        if "text" not in us:
++            style["text"] = "ff24ff42"
++        if "muted" not in us:
++            style["muted"] = "ff19b830"
+     return {"theme": theme, "accent": accent}
+ 
+ 
+@@ -617,11 +626,13 @@ def tab_component(page, style):
+         if ctl.definition.startswith("radio"):
+             # Segment captions live in the tab (the definition is shared by every n-way switch).
+             width, xs = SEGMENTS[len(ctl.param.choices)]
++            max_chars = max(1, max(len(c) for c in ctl.param.choices))
++            seg_font_h = min(20.0, max(13.5, round(((width - 8.0) / float(max_chars)) * 1.75, 1)))
+             for ci, (choice, x) in enumerate(zip(ctl.param.choices, xs)):
+                 children.append(entry("%s seg %d" % (ctl.param.name, ci), "Label",
+-                                      label_data("Text", style["text"], 22.0, "horizontallyCentred verticallyCentred", choice),
++                                      label_data("Text", style["text"], seg_font_h, "horizontallyCentred verticallyCentred", choice),
+                                       "%d %d %d 40" % (SLOT_X[col] + x, SLOT_Y[row] + 54, width),
+-                                      "No", "Hide", "Always", invalidating=invalidating))
++                                      "No", "Show", "Always", remap=[("Data", ctl.param.handle)], invalidating=invalidating))
+     return component_definition([], children, style["background"])
+ 
+ 
+diff --git a/tools/make_ui_kit.py b/tools/make_ui_kit.py
+index 3270302..5da2b45 100644
+--- a/tools/make_ui_kit.py
++++ b/tools/make_ui_kit.py
+@@ -61,6 +61,7 @@ THEMES = {
+     "lime": "ff8fd21f",
+     "violet": "ff9b63ff",
+     "mono": "ffe4e4e6",
++    "mpc60-green": "ff24ff42",
+ }
+ 
+ 
+@@ -91,6 +92,17 @@ def make_theme(name, accent=None):
+         raise ValueError("unknown theme %r (choose from %s)" % (name, ", ".join(sorted(THEMES))))
+     acc = parse_argb(accent) if accent else parse_argb(THEMES[name])
+     th = {k: parse_argb(v) for k, v in GREYS.items()}
++    if name == "mpc60-green":
++        th["bg"] = parse_argb("ff0a1408")
++        th["body"] = parse_argb("ff0f200c")
++        th["bodyLight"] = parse_argb("ff1b3816")
++        th["bodyDark"] = parse_argb("ff060d05")
++        th["track"] = parse_argb("ff152b11")
++        th["outline"] = parse_argb("ff189028")
++        th["pointer"] = parse_argb("ff24ff42")
++        th["thumb"] = parse_argb("ff1c8c2c")
++        th["thumbLight"] = parse_argb("ff24ff42")
++        th["thumbDark"] = parse_argb("ff0f4a17")
+     th["accent"] = acc
+     th["accentDark"] = mix(acc, th["outline"], 0.35)
+     th["accentGlow"] = with_alpha(acc, 70)

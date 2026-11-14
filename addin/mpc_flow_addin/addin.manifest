@@ -1,0 +1,7 @@
+ADDIN_ID=flowgen
+ADDIN_NAME="FlowGen AI Menu Addin"
+ADDIN_SO=mpc_flow_addin.so
+ADDIN_CONF=mpc_flow_addin.conf
+ADDIN_FILES=""
+ADDIN_DONE="FlowGen Menu UI is now active on MPC Menu Bar & Menu Page 2 (bridge: 10.101.132.112:6767)."
+ADDIN_VERSION=1.0.0

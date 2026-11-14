@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "mpc-bridge",
+      "name": "MPC Hardware Bridge & MIDI",
+      "kind": "mpc_bridge",
+      "enabled": true,
+      "interval_s": 1.0,
+      "config": {
+        "host": "10.101.132.233",
+        "port": 6731,
+        "sniff_leds": false,
+        "include_noise": false
+      }
+    },
+    {
+      "id": "mpc-screen",
+      "name": "MPC Live Screen (:6720)",
+      "kind": "http",
+      "enabled": true,
+      "interval_s": 3.0,
+      "config": {
+        "url": "http://10.101.132.233:6720/info",
+        "timeout_s": 2.0
+      }
+    },
+    {
+      "id": "mpc-mirror",
+      "name": "Mac Studio Mirror (:6767)",
+      "kind": "http",
+      "enabled": true,
+      "interval_s": 2.0,
+      "config": {
+        "url": "http://127.0.0.1:6767/api/status",
+        "expect_json_key": "ok",
+        "timeout_s": 2.0
+      }
+    },
+    {
+      "id": "mpc-storage",
+      "name": "MPC okcomputer Storage (SSH)",
+      "kind": "ssh",
+      "enabled": true,
+      "interval_s": 10.0,
+      "config": {
+        "host": "root@10.101.132.233",
+        "command": "df -h /media/okcomputer | tail -1",
+        "timeout_s": 4.0
+      }
+    },
+    {
+      "id": "mpc-activity",
+      "name": "MCP / CLI / Mirror İşlemleri",
+      "kind": "log_tail",
+      "enabled": true,
+      "interval_s": 0.7,
+      "config": {
+        "path": "/Users/dogukanatok/.gemini/antigravity/scratch/mpcuter-antigravity-workspace/mpc_control/activity_feed.jsonl",
+        "parser": "jsonl_activity",
+        "max_initial_lines": 35
+      }
+    },
+    {
+      "id": "agent-transcript",
+      "name": "Antigravity Canlı Akış",
+      "kind": "log_tail",
+      "enabled": true,
+      "interval_s": 1.5,
+      "config": {
+        "path_glob": "/Users/dogukanatok/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl",
+        "parser": "antigravity_transcript",
+        "max_initial_lines": 18
+      }
+    },
+    {
+      "id": "agent-tasks",
+      "name": "Arka Plan Görev Logları",
+      "kind": "dir_watch",
+      "enabled": true,
+      "interval_s": 2.5,
+      "config": {
+        "path_glob": "/Users/dogukanatok/.gemini/antigravity/brain/*/.system_generated/tasks/*.log",
+        "recent_n": 5
+      }
+    },
+    {
+      "id": "mpc-patterns",
+      "name": "MIDI Pattern Klasörü",
+      "kind": "dir_watch",
+      "enabled": true,
+      "interval_s": 5.0,
+      "config": {
+        "path": "/Users/dogukanatok/.gemini/antigravity/scratch/mpcuter-antigravity-workspace/mpc_control/patterns",
+        "recent_n": 10
+      }
+    },
+    {
+      "id": "mpc-webhook",
+      "name": "Webhook & IAC MIDI (:6780)",
+      "kind": "http",
+      "enabled": true,
+      "interval_s": 2.0,
+      "config": {
+        "url": "http://127.0.0.1:6780/health",
+        "expect_json_key": "ok",
+        "timeout_s": 2.0
+      }
+    },
+    {
+      "id": "webhook-inbox",
+      "name": "İzlenen Webhook Klasörü",
+      "kind": "dir_watch",
+      "enabled": true,
+      "interval_s": 1.0,
+      "config": {
+        "path": "/Users/dogukanatok/.gemini/antigravity/scratch/mpcuter-antigravity-workspace/mpc_control/webhook_inbox",
+        "recent_n": 10
+      }
+    },
+    {
+      "id": "mpc-library",
+      "name": "MPC Sample Library Watcher",
+      "kind": "ssh",
+      "enabled": true,
+      "interval_s": 10.0,
+      "config": {
+        "host": "root@10.101.132.233",
+        "command": "printf '%s | svc=%s\\n' \"$(tr -d '\\n{}' < /data/mpc-control/sample_library/progress.json 2>/dev/null || echo 'no-progress')\" \"$(systemctl is-active mpc-sample-library.service 2>/dev/null || echo down)\"",
+        "timeout_s": 4.0
+      }
+    }
+  ]
+}

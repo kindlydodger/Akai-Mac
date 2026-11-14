@@ -1,0 +1,52 @@
+{
+  "kit": "amber",
+  "pages": [
+    {
+      "name": "TAPE",
+      "controls": [
+        { "param": "Output", "widget": "knob", "polarity": "bipolar" },
+        { "param": "Tape Drive", "widget": "knob" },
+        { "param": "Saturation", "widget": "knob" },
+        { "param": "Tape Bias", "widget": "knob" },
+        { "param": "Solver Mode", "widget": "switch" },
+        { "param": "Pre/Post Tone", "widget": "knob", "polarity": "bipolar" },
+        { "param": "Tape Comp", "widget": "knob" },
+        { "param": "Input Gain", "widget": "knob", "polarity": "bipolar" }
+      ]
+    },
+    {
+      "name": "WOW/LOSS",
+      "controls": [
+        { "param": "Wow Depth", "widget": "knob" },
+        { "param": "Wow Rate", "widget": "knob" },
+        { "param": "Flutter Depth", "widget": "knob" },
+        { "param": "Flutter Rate", "widget": "knob" },
+        { "param": "Tape Speed", "widget": "knob" },
+        { "param": "Tape Loss", "widget": "knob" },
+        { "param": "Tape Chew", "widget": "knob" },
+        { "param": "Dry/Wet", "widget": "fader" }
+      ]
+    },
+    {
+      "name": "FULL 16",
+      "controls": [
+        { "param": "Output", "widget": "knob", "polarity": "bipolar" },
+        { "param": "Tape Drive", "widget": "knob" },
+        { "param": "Saturation", "widget": "knob" },
+        { "param": "Tape Bias", "widget": "knob" },
+        { "param": "Solver Mode", "widget": "switch" },
+        { "param": "Pre/Post Tone", "widget": "knob", "polarity": "bipolar" },
+        { "param": "Tape Comp", "widget": "knob" },
+        { "param": "Input Gain", "widget": "knob", "polarity": "bipolar" },
+        { "param": "Wow Depth", "widget": "knob" },
+        { "param": "Wow Rate", "widget": "knob" },
+        { "param": "Flutter Depth", "widget": "knob" },
+        { "param": "Flutter Rate", "widget": "knob" },
+        { "param": "Tape Speed", "widget": "knob" },
+        { "param": "Tape Loss", "widget": "knob" },
+        { "param": "Tape Chew", "widget": "knob" },
+        { "param": "Dry/Wet", "widget": "fader" }
+      ]
+    }
+  ]
+}

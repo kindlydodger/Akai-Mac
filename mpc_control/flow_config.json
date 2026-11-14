@@ -1,0 +1,18 @@
+{
+  "engine": "auto",
+  "model": "lyria-realtime-exp",
+  "mpc_host": "",
+  "ssh_user": "root",
+  "remote_flow_dir": "/media/okcomputer/FlowSamples",
+  "drop_dirs": [
+    "~/Downloads",
+    "~/Music/Flow Music"
+  ],
+  "default_bpm": 92.0,
+  "default_key": "C minor",
+  "default_bars": 4,
+  "slice_mode": "onsets",
+  "match_bpm": true,
+  "match_key": false,
+  "auto_deploy": true
+}

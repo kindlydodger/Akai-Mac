@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "id": "flowgen",
+  "name": "FlowGen AI Menu Addin",
+  "version": "1.0.0",
+  "kind": "addin",
+  "layout": "addin",
+  "so": "mpc_flow_addin.so",
+  "conf": "mpc_flow_addin.conf",
+  "files": [],
+  "user_data": [
+    "mpc_flow_addin.conf"
+  ],
+  "arch": "armv7",
+  "max_glibc": "2.39",
+  "param_compat": 1,
+  "about": "Native Hakai Menu program UI on MPC Live for prompt-based Gemini Lyria AI Drum Kit & Loop generation (.xpm + 16 stereo WAV pads).",
+  "license": "MIT",
+  "cpu": null
+}

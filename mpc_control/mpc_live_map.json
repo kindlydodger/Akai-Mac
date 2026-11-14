@@ -1,0 +1,198 @@
+{
+  "meta": {
+    "device": "Akai MPC Live",
+    "hw_port": "hw:1,0,1",
+    "bridge_port": 6731,
+    "remote_port": 6720,
+    "default_host": "10.101.132.233",
+    "midi_patterns_dir": "/media/okcomputer/MidiPatterns",
+    "reserved_unsafe_notes": [88],
+    "notes": "Verified live against Akai MPC Live Mk1 (Hakai 3.10 / MPC 3.x) via libmpc_hw_bridge.so on hw:1,0,1. Note 0x58 (88) exits /usr/bin/MPC and is guarded."
+  },
+  "buttons": {
+    "PLAY": {"note": 82, "hex": "0x52", "category": "transport"},
+    "STOP": {"note": 81, "hex": "0x51", "category": "transport"},
+    "PLAY_START": {"note": 83, "hex": "0x53", "category": "transport"},
+    "OVERDUB": {"note": 80, "hex": "0x50", "category": "transport"},
+    "REC": {"note": 73, "hex": "0x49", "category": "transport"},
+    "TAP_TEMPO": {"note": 53, "hex": "0x35", "category": "transport"},
+
+    "BANK_A": {"note": 35, "hex": "0x23", "category": "bank"},
+    "BANK_B": {"note": 36, "hex": "0x24", "category": "bank"},
+    "BANK_C": {"note": 37, "hex": "0x25", "category": "bank"},
+    "BANK_D": {"note": 38, "hex": "0x26", "category": "bank"},
+
+    "FULL_LEVEL": {"note": 39, "hex": "0x27", "category": "pad_mode"},
+    "16_LEVEL": {"note": 40, "hex": "0x28", "category": "pad_mode"},
+    "NOTE_REPEAT": {"note": 11, "hex": "0x0B", "category": "pad_mode"},
+    "ERASE": {"note": 9, "hex": "0x09", "category": "pad_mode"},
+    "SHIFT": {"note": 49, "hex": "0x31", "category": "modifier"},
+
+    "MENU": {"note": 123, "hex": "0x7B", "category": "mode"},
+    "MAIN": {"note": 52, "hex": "0x34", "category": "mode"},
+    "BROWSE": {"note": 51, "hex": "0x33", "category": "mode"},
+    "STEP_SEQ": {"note": 41, "hex": "0x29", "category": "mode"},
+    "NEXT_SEQ": {"note": 42, "hex": "0x2A", "category": "mode"},
+    "TRACK_MUTE": {"note": 43, "hex": "0x2B", "category": "mode"},
+    "PROGRAM_EDIT": {"note": 2, "hex": "0x02", "category": "mode"},
+    "PAD_MIXER": {"note": 3, "hex": "0x03", "category": "mode"},
+    "TRACK_MIXER": {"note": 116, "hex": "0x74", "category": "mode"},
+    "SAMPLE_EDIT": {"note": 6, "hex": "0x06", "category": "mode"},
+    "SAMPLE_EDIT_CHOP": {"note": 12, "hex": "0x0C", "category": "mode"},
+    "SAMPLER": {"note": 125, "hex": "0x7D", "category": "mode"},
+    "XYFX": {"note": 126, "hex": "0x7E", "category": "mode"},
+    "SONG": {"note": 8, "hex": "0x08", "category": "mode"},
+    "PAD_PERFORM": {"note": 127, "hex": "0x7F", "category": "mode"},
+    "AMP_ENV": {"note": 14, "hex": "0x0E", "category": "mode"},
+    "MODS": {"note": 15, "hex": "0x0F", "category": "mode"},
+
+    "UNDO": {"note": 67, "hex": "0x43", "category": "edit"},
+    "COPY": {"note": 122, "hex": "0x7A", "category": "edit"},
+    "MINUS": {"note": 54, "hex": "0x36", "category": "nav"},
+    "PLUS": {"note": 55, "hex": "0x37", "category": "nav"},
+    "LEFT": {"note": 56, "hex": "0x38", "category": "nav"},
+    "RIGHT": {"note": 57, "hex": "0x39", "category": "nav"},
+    "UP": {"note": 65, "hex": "0x41", "category": "nav"},
+    "DOWN": {"note": 66, "hex": "0x42", "category": "nav"},
+    "DATA_DIAL_PRESS": {"note": 111, "hex": "0x6F", "category": "nav"},
+
+    "READ_WRITE": {"note": 75, "hex": "0x4B", "category": "track"},
+    "MUTE": {"note": 76, "hex": "0x4C", "category": "track"},
+    "SOLO": {"note": 77, "hex": "0x4D", "category": "track"},
+    "REC_ARM": {"note": 13, "hex": "0x0D", "category": "track"},
+    "ARRANGEMENT_REC": {"note": 74, "hex": "0x4A", "category": "track"},
+
+    "QLINK_MODE_1": {"note": 44, "hex": "0x2C", "category": "qlink"},
+    "QLINK_MODE_2": {"note": 45, "hex": "0x2D", "category": "qlink"},
+    "QLINK_MODE_3": {"note": 46, "hex": "0x2E", "category": "qlink"},
+    "QLINK_MODE_4": {"note": 47, "hex": "0x2F", "category": "qlink"},
+    "QLINK_MODE_5": {"note": 48, "hex": "0x30", "category": "qlink"},
+
+    "F1": {"note": 117, "hex": "0x75", "category": "softkey"},
+    "F2": {"note": 118, "hex": "0x76", "category": "softkey"},
+    "F3": {"note": 119, "hex": "0x77", "category": "softkey"},
+    "F4": {"note": 120, "hex": "0x78", "category": "softkey"},
+    "F5": {"note": 121, "hex": "0x79", "category": "softkey"}
+  },
+  "aliases": {
+    "ENTER": "DATA_DIAL_PRESS",
+    "DIAL_PRESS": "DATA_DIAL_PRESS",
+    "DIAL_PUSH": "DATA_DIAL_PRESS",
+    "MIXER": "TRACK_MIXER",
+    "CHANNEL_MIXER": "TRACK_MIXER",
+    "PROG_EDIT": "PROGRAM_EDIT",
+    "PROGRAM": "PROGRAM_EDIT",
+    "CHOP": "SAMPLE_EDIT_CHOP",
+    "TAP": "TAP_TEMPO",
+    "16_LEVELS": "16_LEVEL",
+    "SIXTEEN_LEVEL": "16_LEVEL",
+    "SIXTEEN_LEVELS": "16_LEVEL",
+    "-": "MINUS",
+    "+": "PLUS",
+    "DEC": "MINUS",
+    "INC": "PLUS",
+    "STEP_SEQUENCER": "STEP_SEQ",
+    "NEXT_SEQUENCE": "NEXT_SEQ",
+    "PAD_MUTE": "TRACK_MUTE",
+    "RECORD": "REC",
+    "AUTOMATION": "READ_WRITE",
+    "QLINK": "QLINK_MODE_1"
+  },
+  "combos": {
+    "BANK_E": ["SHIFT", "BANK_A"],
+    "BANK_F": ["SHIFT", "BANK_B"],
+    "BANK_G": ["SHIFT", "BANK_C"],
+    "BANK_H": ["SHIFT", "BANK_D"],
+    "REDO": ["SHIFT", "UNDO"]
+  },
+  "pads": {
+    "channel": 9,
+    "banks": ["A", "B", "C", "D", "E", "F", "G", "H"],
+    "items": [
+      {"pad": 1, "note": 37, "hex": "0x25", "row": 1, "col": 1},
+      {"pad": 2, "note": 36, "hex": "0x24", "row": 1, "col": 2},
+      {"pad": 3, "note": 42, "hex": "0x2A", "row": 1, "col": 3},
+      {"pad": 4, "note": 82, "hex": "0x52", "row": 1, "col": 4},
+      {"pad": 5, "note": 40, "hex": "0x28", "row": 2, "col": 1},
+      {"pad": 6, "note": 38, "hex": "0x26", "row": 2, "col": 2},
+      {"pad": 7, "note": 46, "hex": "0x2E", "row": 2, "col": 3},
+      {"pad": 8, "note": 44, "hex": "0x2C", "row": 2, "col": 4},
+      {"pad": 9, "note": 48, "hex": "0x30", "row": 3, "col": 1},
+      {"pad": 10, "note": 47, "hex": "0x2F", "row": 3, "col": 2},
+      {"pad": 11, "note": 45, "hex": "0x2D", "row": 3, "col": 3},
+      {"pad": 12, "note": 43, "hex": "0x2B", "row": 3, "col": 4},
+      {"pad": 13, "note": 49, "hex": "0x31", "row": 4, "col": 1},
+      {"pad": 14, "note": 55, "hex": "0x37", "row": 4, "col": 2},
+      {"pad": 15, "note": 51, "hex": "0x33", "row": 4, "col": 3},
+      {"pad": 16, "note": 53, "hex": "0x35", "row": 4, "col": 4}
+    ]
+  },
+  "dial": {
+    "channel": 0,
+    "cc": 100,
+    "hex": "0x64",
+    "encoding": "twos_complement_7bit",
+    "press_button": "DATA_DIAL_PRESS"
+  },
+  "qlinks": {
+    "knobs": {
+      "1": {"cc": null, "channel": 0, "touch_note": null, "encoding": "twos_complement_7bit"},
+      "2": {"cc": null, "channel": 0, "touch_note": null, "encoding": "twos_complement_7bit"},
+      "3": {"cc": null, "channel": 0, "touch_note": null, "encoding": "twos_complement_7bit"},
+      "4": {"cc": null, "channel": 0, "touch_note": null, "encoding": "twos_complement_7bit"}
+    },
+    "mode_buttons": [
+      "QLINK_MODE_1",
+      "QLINK_MODE_2",
+      "QLINK_MODE_3",
+      "QLINK_MODE_4",
+      "QLINK_MODE_5"
+    ]
+  },
+  "ui": {
+    "screen": {"width": 1280, "height": 800},
+    "main": {
+      "browser_icon": [48, 212],
+      "seq_edit_pencil": [1219, 172],
+      "track_edit_pencil": [1221, 469]
+    },
+    "browser": {
+      "up_folder": [38, 72],
+      "places_tab": [70, 148],
+      "okcomputer_place": [140, 302],
+      "open_or_load": [1160, 765]
+    },
+    "step_seq": {
+      "step_x_start": 63,
+      "step_x_pitch": 66,
+      "step_y": 661,
+      "steps_count": 16,
+      "vel_top_y": 224,
+      "vel_bottom_y": 617,
+      "bars_field": [725, 68],
+      "bpm_field": [830, 68],
+      "tc_btn": [106, 768],
+      "bar_minus": [302, 768],
+      "bar_plus": [548, 768],
+      "pad_sel": [746, 768],
+      "pad_minus": [942, 768],
+      "pad_plus": [1188, 768],
+      "nudge_left": [891, 175],
+      "nudge_right": [1034, 175]
+    },
+    "tc_modal": {
+      "swing_field": [282, 620],
+      "all_tracks_btn": [530, 768],
+      "close_btn": [742, 768],
+      "do_it_btn": [956, 768],
+      "close_x": [1030, 92]
+    },
+    "seq_edit_modal": {
+      "erase_icon": [327, 252],
+      "clear_all_icon": [483, 252],
+      "clear_events_icon": [639, 252],
+      "confirm_clear_events_btn": [532, 768]
+    }
+  },
+  "learned": {}
+}
