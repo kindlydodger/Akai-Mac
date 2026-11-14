@@ -28,7 +28,7 @@ from mpc_audio import (
 )
 from mpc_client import emit_activity
 
-DEFAULT_MPC_HOST = os.environ.get("MPC_HOST", "10.101.132.233")
+DEFAULT_MPC_HOST = os.environ.get("MPC_HOST", "mpc-live.local")
 DEFAULT_MPC_USER = os.environ.get("MPC_SSH_USER", "root")
 REMOTE_LIBRARY_DIR = "/data/mpc-control/sample_library"
 REMOTE_MIRROR_DIR = "/media/okcomputer/MPC_Sample_Library"

@@ -161,34 +161,6 @@
     display: flex; justify-content: space-between; gap: 10px;
   }
 
-  /* FlowGen MPC Panel */
-  .flow-panel {
-    margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border);
-    display: flex; flex-direction: column; gap: 8px;
-  }
-  .flow-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-  .flow-title { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #00d2ff; text-transform: uppercase; }
-  .flow-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  .flow-inp {
-    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
-    border-radius: 5px; padding: 6px 8px; font-size: 11px; outline: none;
-  }
-  .flow-inp:focus { border-color: #00d2ff; }
-  .flow-prompt { flex: 1 1 240px; }
-  .btn-flow {
-    background: #0c3340; color: #7aeaff; border: 1px solid #00a8cc;
-    border-radius: 5px; padding: 6px 12px; font-size: 11px; font-weight: 700; cursor: pointer;
-  }
-  .btn-flow:hover { background: #134a5c; }
-  .btn-flow:disabled { opacity: 0.55; cursor: wait; }
-  .flow-banks { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
-  .bank-pill {
-    background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
-    padding: 4px 2px; font-size: 10px; text-align: center; cursor: pointer; color: var(--muted);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .bank-pill.pop { border-color: #2f5b6b; color: #cdefff; }
-  .bank-pill.act { background: #103b4a; border-color: #00d2ff; color: #fff; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -215,40 +187,6 @@
         <div class="spacer"></div>
         <select id="presetSelect"></select>
         <button class="btn-accent" onclick="deployPreset()">Build &amp; Deploy .mid</button>
-      </div>
-
-      <div class="flow-panel">
-        <div class="flow-hdr">
-          <span class="flow-title">FLOW AI // Google Flow -&gt; MPC Live</span>
-          <span class="pill"><span id="flowEngineBadge">Engine: ...</span></span>
-        </div>
-        <div class="flow-row">
-          <input id="flowPrompt" class="flow-inp flow-prompt" placeholder="Prompt: dusty lofi rhodes chords, vinyl warmth, 92 bpm" />
-          <input id="flowBpm" class="flow-inp" type="number" min="45" max="220" step="1" placeholder="BPM" style="width:64px" value="92" />
-          <input id="flowKey" class="flow-inp" placeholder="Key (Cm)" style="width:82px" value="C minor" />
-          <select id="flowBars" class="flow-inp">
-            <option value="2">2 Bars</option>
-            <option value="4" selected>4 Bars</option>
-            <option value="8">8 Bars</option>
-          </select>
-          <select id="flowSlot" class="flow-inp"></select>
-          <button id="btnFlowGen" class="btn-flow" onclick="generateFlow()">Generate -&gt; MPC</button>
-        </div>
-        <div class="flow-row">
-          <select id="flowEngineSel" class="flow-inp">
-            <option value="auto">Engine: Auto</option>
-            <option value="gemini_lyria">Gemini Lyria AI</option>
-            <option value="synth_flow">SynthFlow (Offline)</option>
-          </select>
-          <select id="flowSliceMode" class="flow-inp">
-            <option value="onsets">Slice: Onsets (16)</option>
-            <option value="beats">Slice: Beats</option>
-            <option value="grid">Slice: Equal Grid</option>
-          </select>
-          <input id="flowApiKey" class="flow-inp" type="password" placeholder="Optional Gemini API Key" style="flex:1 1 150px" />
-          <button class="btn-sm" onclick="saveFlowSettings()">Save Flow Cfg</button>
-        </div>
-        <div class="flow-banks" id="flowBanksGrid"></div>
       </div>
     </section>
 
@@ -631,108 +569,10 @@ async function refreshStatus() {
   }
 }
 
-function initFlowSlots() {
-  const slotSel = document.getElementById('flowSlot');
-  if (!slotSel || slotSel.options.length) return;
-  for (let i = 1; i <= 16; i++) {
-    const o = document.createElement('option');
-    o.value = String(i);
-    o.textContent = 'Slot B' + String(i).padStart(2, '0');
-    slotSel.appendChild(o);
-  }
-}
-
-function renderFlowBanks(banks, activeSlot) {
-  const grid = document.getElementById('flowBanksGrid');
-  if (!grid || !Array.isArray(banks)) return;
-  grid.innerHTML = '';
-  banks.forEach(b => {
-    const el = document.createElement('button');
-    const pop = b.populated ? ' pop' : '';
-    const act = b.slot === activeSlot ? ' act' : '';
-    el.className = 'bank-pill' + pop + act;
-    el.textContent = 'B' + String(b.slot).padStart(2, '0') + (b.bpm ? (' ' + Math.round(b.bpm)) : '');
-    el.title = b.label ? (`B${b.slot}: ${b.label} (${b.bpm || '?'} BPM | ${b.key || '?'})`) : `Slot ${b.slot} (empty)`;
-    el.onclick = () => selectFlowBank(b.slot);
-    grid.appendChild(el);
-  });
-}
-
-async function refreshFlowStatus() {
-  try {
-    const res = await fetch('/api/flow/status');
-    const data = await res.json();
-    if (!data.ok) return;
-    const keyTxt = data.gemini_api_key && data.gemini_api_key.configured ? `Lyria Ready (${data.gemini_api_key.hint})` : 'SynthFlow Ready (No API Key)';
-    document.getElementById('flowEngineBadge').textContent = `${data.effective_engine} | ${keyTxt} | seq=${data.trigger_seq}`;
-    renderFlowBanks(data.banks, data.active_slot);
-  } catch (_) {}
-}
-
-async function generateFlow() {
-  const prompt = document.getElementById('flowPrompt').value.trim();
-  if (!prompt) { setLog('Enter a Flow sample prompt first.', true); return; }
-  const btn = document.getElementById('btnFlowGen');
-  btn.disabled = true;
-  setLog(`Generating Flow sample -> Bank B${String(document.getElementById('flowSlot').value).padStart(2, '0')}...`);
-  try {
-    const res = await postApi('/api/flow/generate', {
-      prompt,
-      slot: Number(document.getElementById('flowSlot').value),
-      bpm: Number(document.getElementById('flowBpm').value) || null,
-      key: document.getElementById('flowKey').value.trim() || null,
-      bars: Number(document.getElementById('flowBars').value) || 4,
-      engine: document.getElementById('flowEngineSel').value,
-      slice_mode: document.getElementById('flowSliceMode').value,
-      deploy: true,
-    });
-    const m = res.meta || {};
-    setLog(`FLOW AI B${String(res.slot).padStart(2, '0')} loaded (${m.engine}, ${m.bpm} BPM, ${m.key}, seq=${res.seq})`);
-    refreshFlowStatus();
-  } catch (e) {
-    setLog(e.message, true);
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-async function selectFlowBank(slot) {
-  document.getElementById('flowSlot').value = String(slot);
-  setLog(`Switching FLOW AI -> Bank B${String(slot).padStart(2, '0')}...`);
-  try {
-    const res = await postApi('/api/flow/select', {slot, deploy: true});
-    setLog(`FLOW AI active slot -> B${String(res.slot).padStart(2, '0')} (seq=${res.seq})`);
-    refreshFlowStatus();
-  } catch (e) {
-    setLog(e.message, true);
-  }
-}
-
-async function saveFlowSettings() {
-  const payload = {
-    engine: document.getElementById('flowEngineSel').value,
-    slice_mode: document.getElementById('flowSliceMode').value,
-    default_bpm: Number(document.getElementById('flowBpm').value) || 92,
-    default_key: document.getElementById('flowKey').value.trim() || 'C minor',
-  };
-  const keyVal = document.getElementById('flowApiKey').value.trim();
-  if (keyVal) payload.api_key = keyVal;
-  try {
-    const res = await postApi('/api/flow/config', payload);
-    document.getElementById('flowApiKey').value = '';
-    setLog(`Flow config saved (engine=${res.effective_engine}, key=${res.gemini_api_key.configured ? res.gemini_api_key.hint : 'none'})`);
-    refreshFlowStatus();
-  } catch (e) {
-    setLog(e.message, true);
-  }
-}
-
 buildPads();
-initFlowSlots();
 loadStream();
 refreshStatus();
-refreshFlowStatus();
-setInterval(() => { refreshStatus(); refreshFlowStatus(); }, 5000);
+setInterval(refreshStatus, 5000);
 </script>
 </body>
 </html>

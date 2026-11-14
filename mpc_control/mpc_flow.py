@@ -86,9 +86,9 @@ def default_mpc_host() -> str:
     if env_host:
         return env_host
     try:
-        return str(MpcMap().data.get("meta", {}).get("default_host", "10.101.132.233"))
+        return str(MpcMap().data.get("meta", {}).get("default_host", "mpc-live.local"))
     except Exception:
-        return "10.101.132.233"
+        return "mpc-live.local"
 
 
 def load_config() -> Dict[str, Any]:

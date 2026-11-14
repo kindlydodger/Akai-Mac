@@ -1,0 +1,12 @@
+[Unit]
+Description=MPC Live Early Boot ASCII Grin Animator (/dev/fb0)
+DefaultDependencies=no
+After=data.mount etc.mount mpc-addins-reload.service
+ConditionPathExists=/data/mpc-control/mpc_boot_anim
+
+[Service]
+Type=simple
+ExecStart=/data/mpc-control/mpc_boot_anim --fb --max-wait 38
+TimeoutStopSec=3
+StandardOutput=null
+StandardError=journal

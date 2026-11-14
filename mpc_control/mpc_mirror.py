@@ -221,34 +221,48 @@ class MirrorRequestHandler(BaseHTTPRequestHandler):
         return obj
 
     def _proxy_remote_simple(self, path_with_query: str) -> None:
-        conn: Optional[http.client.HTTPConnection] = None
-        try:
-            conn = http.client.HTTPConnection(self.client.host, self.client.remote_port, timeout=4.0)
-            conn.request("GET", path_with_query)
-            resp = conn.getresponse()
-            data = resp.read()
-            ctype = resp.getheader("Content-Type") or "text/plain; charset=utf-8"
-            self.send_response(resp.status)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(data)
-        except Exception as exc:
-            self._send_json({"ok": False, "error": str(exc)}, status=502)
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+        last_exc: Optional[Exception] = None
+        for attempt in range(2):
+            conn: Optional[http.client.HTTPConnection] = None
+            try:
+                target = self.client.resolve_host(force_refresh=(attempt == 1))
+                conn = http.client.HTTPConnection(target, self.client.remote_port, timeout=4.0)
+                conn.request("GET", path_with_query)
+                resp = conn.getresponse()
+                data = resp.read()
+                ctype = resp.getheader("Content-Type") or "text/plain; charset=utf-8"
+                self.send_response(resp.status)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            except Exception as exc:
+                last_exc = exc
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        self._send_json({"ok": False, "error": str(last_exc)}, status=502)
 
     def _proxy_mjpeg_stream(self, path_with_query: str) -> None:
         conn: Optional[http.client.HTTPConnection] = None
         try:
-            conn = http.client.HTTPConnection(self.client.host, self.client.remote_port, timeout=10.0)
-            conn.request("GET", path_with_query)
-            resp = conn.getresponse()
+            target = self.client.resolve_host()
+            try:
+                conn = http.client.HTTPConnection(target, self.client.remote_port, timeout=10.0)
+                conn.request("GET", path_with_query)
+                resp = conn.getresponse()
+            except (http.client.HTTPException, OSError):
+                if conn is not None:
+                    conn.close()
+                target = self.client.resolve_host(force_refresh=True)
+                conn = http.client.HTTPConnection(target, self.client.remote_port, timeout=10.0)
+                conn.request("GET", path_with_query)
+                resp = conn.getresponse()
             ctype = resp.getheader("Content-Type") or "multipart/x-mixed-replace; boundary=frame"
             self.send_response(resp.status)
             self.send_header("Content-Type", ctype)

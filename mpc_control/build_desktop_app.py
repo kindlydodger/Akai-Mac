@@ -74,65 +74,38 @@ def _encode_png_rgba(width: int, height: int, pixels: bytearray) -> bytes:
 
 
 def render_mpc_icon_png(size: int = 512) -> bytes:
-    """Render a crisp 512x512 MPC 3.x Menu-themed pad grid + live LCD pulse icon."""
+    """Render a minimal, crisp 512x512 Akai MPC dark obsidian 4x4 pad icon."""
     buf = bytearray(size * size * 4)
     scale = size / 512.0
 
-    # Pad color layout matching MPC 3.x Menu app accents
-    pad_colors = {
-        (0, 0): C_CRIMSON,
-        (0, 1): C_EMERALD,
-        (0, 2): C_GOLD,
-        (0, 3): C_TEAL,
-        (1, 0): C_CRIMSON,
-        (1, 1): C_MAGENTA,
-        (1, 2): C_TILE_IDLE,
-        (1, 3): C_BLUE,
-        (2, 0): C_TILE_IDLE,
-        (2, 1): C_EMERALD,
-        (2, 2): C_TILE_IDLE,
-        (2, 3): C_TILE_IDLE,
-        (3, 0): C_TILE_IDLE,
-        (3, 1): C_TILE_IDLE,
-        (3, 2): C_GOLD,
-        (3, 3): C_CRIMSON,
-    }
+    # Minimalist palette: obsidian base, uniform charcoal pads, single Akai Crimson Pad A01
+    c_base: RGBA = (17, 18, 22, 255)
+    c_rim: RGBA = (46, 48, 56, 255)
+    c_pad: RGBA = (38, 40, 46, 255)
+    c_pad_edge: RGBA = (52, 55, 63, 255)
+    c_accent: RGBA = C_CRIMSON
+    c_accent_edge: RGBA = (255, 78, 96, 255)
 
-    margin = 34 * scale
-    outer_r = 96 * scale
-    rim_w = 6 * scale
+    margin = 36 * scale
+    outer_r = 104 * scale
+    rim_w = 3.5 * scale
 
-    lcd_x0, lcd_y0, lcd_x1, lcd_y1 = 82 * scale, 74 * scale, 430 * scale, 154 * scale
-    grid_x0, grid_y0 = 82 * scale, 178 * scale
-    pad_sz, pad_gap = 75 * scale, 16 * scale
+    pad_sz = 72 * scale
+    pad_gap = 18 * scale
+    grid_span = 4 * pad_sz + 3 * pad_gap
+    grid_x0 = (size - grid_span) * 0.5
+    grid_y0 = (size - grid_span) * 0.5
 
     for y in range(size):
         for x in range(size):
             px: RGBA = (0, 0, 0, 0)
             d_outer = _rounded_rect_sdf(x, y, margin, margin, size - margin, size - margin, outer_r)
             if d_outer < 1.2:
-                alpha = int(max(0.0, min(1.0, 0.8 - d_outer)) * 255)
-                if d_outer > -rim_w:
-                    base = C_BEZEL if d_outer < -1.8 else C_RIM
-                else:
-                    base = C_BG
+                alpha = int(max(0.0, min(1.0, 0.85 - d_outer)) * 255)
+                base = c_rim if d_outer > -rim_w else c_base
                 px = (base[0], base[1], base[2], alpha)
 
-                # Top OLED telemetry bar
-                d_lcd = _rounded_rect_sdf(x, y, lcd_x0, lcd_y0, lcd_x1, lcd_y1, 18 * scale)
-                if d_lcd <= 0:
-                    px = _blend(px, C_LCD_BG)
-                    # Waveform pulse + red live dot inside LCD
-                    rel_x = (x - lcd_x0) / max(1.0, lcd_x1 - lcd_x0)
-                    mid_y = (lcd_y0 + lcd_y1) * 0.5
-                    wave = math.sin(rel_x * 16.0) * math.exp(-((rel_x - 0.45) ** 2) * 14.0) * 24 * scale
-                    if rel_x > 0.14 and abs(y - (mid_y - wave)) < 3.2 * scale:
-                        px = _blend(px, C_EMERALD)
-                    if math.hypot(x - (lcd_x0 + 28 * scale), y - mid_y) < 9.5 * scale:
-                        px = _blend(px, C_CRIMSON)
-
-                # 4x4 Pad matrix
-                if grid_x0 <= x <= grid_x0 + 4 * pad_sz + 3 * pad_gap and grid_y0 <= y <= grid_y0 + 4 * pad_sz + 3 * pad_gap:
+                if grid_x0 <= x <= grid_x0 + grid_span and grid_y0 <= y <= grid_y0 + grid_span:
                     col_i = int((x - grid_x0) // (pad_sz + pad_gap))
                     row_i = int((y - grid_y0) // (pad_sz + pad_gap))
                     px0 = grid_x0 + col_i * (pad_sz + pad_gap)
@@ -140,10 +113,11 @@ def render_mpc_icon_png(size: int = 512) -> bytes:
                     if 0 <= col_i < 4 and 0 <= row_i < 4:
                         dp = _rounded_rect_sdf(x, y, px0, py0, px0 + pad_sz, py0 + pad_sz, 14 * scale)
                         if dp <= 0:
-                            fill = pad_colors.get((row_i, col_i), C_TILE_IDLE)
-                            if dp > -3.5 * scale:
-                                # Crisp Akai pad rubber edge tint
-                                fill = (min(255, fill[0] + 22), min(255, fill[1] + 22), min(255, fill[2] + 22), 255)
+                            is_a01 = (row_i == 3 and col_i == 0)
+                            if dp > -2.5 * scale:
+                                fill = c_accent_edge if is_a01 else c_pad_edge
+                            else:
+                                fill = c_accent if is_a01 else c_pad
                             px = _blend(px, fill)
 
             off = (y * size + x) * 4
@@ -187,7 +161,7 @@ def _launcher_script(monitor_script: Path) -> str:
 set -euo pipefail
 
 /usr/bin/osascript <<'APPLESCRIPT'
-set targetTitle to "MPC LIVE // CANLI MONİTÖR"
+set targetTitle to "MPC LIVE // LIVE MONITOR"
 set launchCmd to {json_escape_applescript(cmd_str)}
 
 tell application "Terminal"

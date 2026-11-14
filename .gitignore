@@ -27,6 +27,7 @@ mpc_control/activity_feed.jsonl
 
 # Compiled binaries, plugin build artifacts & raw screen/splash images
 mpc_control/bin/
+mpc_control/boot_anim/build/
 *.so
 *.dylib
 plugins/*/build/

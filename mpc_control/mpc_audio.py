@@ -1063,7 +1063,7 @@ def stretch_audio(
     emit_activity("audio", "stretch", f"{src.name} -> {out_wav.name} (x{mult:.3f}, {semi:+.1f}st, {backend})")
 
     if deploy:
-        target_host = host or os.environ.get("MPC_HOST") or MpcMap().data.get("meta", {}).get("default_host", "10.101.132.233")
+        target_host = host or os.environ.get("MPC_HOST") or MpcMap().data.get("meta", {}).get("default_host", "mpc-live.local")
         dep = deploy_file_to_mpc(out_wav, target_host, remote_dir=remote_dir, source="audio", action="deploy_wav")
         result["deploy"] = dep
     return result
@@ -1129,7 +1129,7 @@ def chop_audio(
 
     emit_activity("audio", "chop", f"{src.name} -> {chopped['count']} pad ({mode}) -> {dest.name}/")
     if deploy:
-        target_host = host or os.environ.get("MPC_HOST") or MpcMap().data.get("meta", {}).get("default_host", "10.101.132.233")
+        target_host = host or os.environ.get("MPC_HOST") or MpcMap().data.get("meta", {}).get("default_host", "mpc-live.local")
         pack_remote = f"{remote_dir.rstrip('/')}/{dest.name}"
         deployed_files = []
         for s in chopped["slices"]:

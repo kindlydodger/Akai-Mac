@@ -1196,6 +1196,308 @@ class TestAuditRegressions(unittest.TestCase):
                 mpc_drumkit.KITS_DIR = old_kits_dir
                 mpc_flow.CONFIG_PATH, mpc_flow.SECRETS_PATH, mpc_flow.BANKS_DIR, mpc_flow.SEQ_STATE_PATH = old_flow_paths
 
+    def test_mpc_host_resolution_and_cache_refresh(self) -> None:
+        from unittest import mock
+        from mpc_client import MpcBridgeClient, invalidate_mpc_host_cache, resolve_mpc_host
+
+        invalidate_mpc_host_cache()
+        self.assertEqual(resolve_mpc_host("127.0.0.1"), "127.0.0.1")
+
+        calls = []
+
+        def fake_getaddrinfo(host: str, port: object, family: int = 0, type_: int = 0) -> list[tuple[object, ...]]:
+            calls.append((host, family))
+            ip = "10.104.58.233" if len(calls) >= 2 else "10.101.132.233"
+            return [(2, 1, 6, "", (ip, 0))]
+
+        with mock.patch("mpc_client.socket.getaddrinfo", side_effect=fake_getaddrinfo):
+            self.assertEqual(resolve_mpc_host("mpc-live.local"), "10.101.132.233")
+            # Second call within TTL hits cache without another DNS lookup.
+            self.assertEqual(resolve_mpc_host("mpc-live.local"), "10.101.132.233")
+            self.assertEqual(len(calls), 1)
+            # Forced refresh re-resolves updated IP cleanly.
+            self.assertEqual(resolve_mpc_host("mpc-live.local", force_refresh=True), "10.104.58.233")
+            self.assertEqual(len(calls), 2)
+
+            client = MpcBridgeClient()
+            self.assertEqual(client.host, "mpc-live.local")
+            self.assertEqual(client.resolve_host(), "10.104.58.233")
+
+    def test_mpc_system_probe_and_sysinfo_parser(self) -> None:
+        from unittest import mock
+        from mpc_monitor import _parse_mpc_sysinfo, _probe_mpc_system
+
+        sample_out = """==IP==
+wlan0 10.104.58.233/24
+==CPU1==
+cpu  1000 0 500 8500 0 0 0 0 0 0
+==CPU2==
+cpu  1020 0 505 8575 0 0 0 0 0 0
+==MEM==
+MemTotal: 2048000
+MemAvailable: 1024000
+==LOAD==
+0.55 0.72 0.80 1/200 1234
+56606.96 178912.03
+==TEMP==
+53333
+==DF==
+Filesystem Size Used Available Capacity Mounted on
+/dev/root 401.3M 319.9M 77.4M 81% /
+/dev/mmcblk0p7 3.1G 2.1G 802.1M 73% /data
+/dev/mmcblk1p1 14.4G 6.3G 8.1G 44% /sdcard
+/dev/sda1 223.6G 125.9G 97.7G 56% /media/okcomputer
+"""
+        metrics, prev_cpu = _parse_mpc_sysinfo(sample_out)
+        self.assertEqual(metrics["ip"], "10.104.58.233")
+        self.assertEqual(metrics["iface"], "wlan0")
+        self.assertEqual(metrics["cpu_pct"], 25.0)
+        self.assertEqual(metrics["ram_pct"], 50.0)
+        self.assertEqual(metrics["temp_c"], 53.3)
+        self.assertEqual([d["label"] for d in metrics["disks"]], ["okcomputer", "sdcard", "data", "root"])
+        self.assertEqual([d["pct"] for d in metrics["disks"]], [56.0, 44.0, 73.0, 81.0])
+
+        # Subsequent delta tick using previous CPU tuple without CPU2
+        next_out = sample_out.replace(
+            "==CPU1==\ncpu  1000 0 500 8500 0 0 0 0 0 0\n==CPU2==\ncpu  1020 0 505 8575 0 0 0 0 0 0\n",
+            "==CPU1==\ncpu  1030 0 515 8655 0 0 0 0 0 0\n",
+        )
+        m2, _ = _parse_mpc_sysinfo(next_out, prev_cpu=prev_cpu)
+        self.assertEqual(m2["cpu_pct"], 20.0)
+
+        state: dict = {}
+        fake_proc = mock.Mock(returncode=0, stdout=sample_out, stderr="")
+        with mock.patch("mpc_monitor.subprocess.run", return_value=fake_proc):
+            st, summary, _ = _probe_mpc_system({"id": "mpc-system", "config": {"host": "root@mpc-live.local"}}, state)
+        self.assertEqual(st, "OK")
+        self.assertIn("10.104.58.233", summary)
+        self.assertIn("CPU 25.0%", summary)
+        self.assertIn("ok:56%", summary)
+        self.assertEqual(state["metrics"]["ip"], "10.104.58.233")
+
+    def test_mpc_gtop_widgets_and_pty_view(self) -> None:
+        import fcntl
+        import os
+        import pty
+        import select
+        import struct
+        import termios
+        import time
+        from unittest import mock
+        from mpc_monitor import (
+            _human_bytes,
+            _parse_mpc_sysinfo,
+            _probe_mpc_system,
+            _render_braille_chart,
+            _render_braille_donut,
+            _render_sparkline,
+            _sort_processes,
+        )
+
+        self.assertEqual(_human_bytes(0), "0 B")
+        self.assertEqual(_human_bytes(1536), "1.5 KiB")
+        self.assertEqual(_human_bytes(1000, si=True), "1.0 KB")
+
+        rich_out = """==IP==
+wlan0 10.104.58.233/24
+==CPU1==
+cpu  1000 0 500 8500 0 0 0 0 0 0
+cpu0 250 0 150 2100 0 0 0 0 0 0
+cpu1 250 0 50 2200 0 0 0 0 0 0
+cpu2 300 0 100 2100 0 0 0 0 0 0
+cpu3 200 0 200 2100 0 0 0 0 0 0
+==NET1==
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1000 10 0 0 0 0 0 0 1000 10 0 0 0 0 0 0
+ wlan0: 100000 500 0 0 0 0 0 0 50000 200 0 0 0 0 0 0
+==MEM==
+MemTotal: 2048000
+MemAvailable: 1024000
+SwapTotal: 512000
+SwapFree: 384000
+==LOAD==
+0.92 0.84 0.82 1/200 1234
+1000.00 3500.00
+==UP2==
+1000.50 3502.00
+==CPU2==
+cpu  1020 0 505 8575 0 0 0 0 0 0
+cpu0 260 0 155 2110 0 0 0 0 0 0
+cpu1 252 0 50 2223 0 0 0 0 0 0
+cpu2 304 0 101 2120 0 0 0 0 0 0
+cpu3 204 0 200 2121 0 0 0 0 0 0
+==NET2==
+    lo: 1000 10 0 0 0 0 0 0 1000 10 0 0 0 0 0 0
+ wlan0: 102048 504 0 0 0 0 0 0 54096 204 0 0 0 0 0 0
+==TEMP==
+53333
+==DF==
+Filesystem Size Used Available Capacity Mounted on
+/dev/root 401.3M 319.9M 77.4M 81% /
+/dev/mmcblk0p7 3.1G 273.7M 2.6G 9% /data
+/dev/mmcblk1p1 14.4G 6.3G 8.1G 44% /sdcard
+/dev/sda1 223.6G 125.9G 97.7G 56% /media/okcomputer
+==TOP==
+25032     1 root     S     694m  34%   8% {MPC 3 Main} /usr/bin/MPC |RSS=710196
+25141 25055 root     SN    596m  29%   1% ./filebrowser -c /data/mpc-addins/filebrowser/config.yaml |RSS=56424
+  344     1 root     S     212m  10%   4% /usr/bin/DeviceControlServer.bin |RSS=204800
+   99     2 root     SW       0   0%   2% [irq/56-ehci_hcd] |RSS=0
+28726 28716 root     R     3028   0%   2% top -b -n 1 |RSS=2060
+"""
+        m, _ = _parse_mpc_sysinfo(rich_out)
+        self.assertEqual(len(m["per_core"]), 4)
+        self.assertGreater(m["per_core"][0], 40.0)
+        self.assertEqual(m["swap_pct"], 25.0)
+        self.assertEqual(m["net"]["iface"], "wlan0")
+        self.assertEqual(m["net"]["rx_sec"], 4096.0)
+        self.assertEqual(m["net"]["tx_sec"], 8192.0)
+
+        procs = m["processes"]
+        self.assertEqual([p["pid"] for p in procs], [25032, 344, 99, 25141])  # filtered out top -b -n 1, sorted by %CPU desc
+        self.assertEqual(procs[0]["command"], "MPC 3 Main")
+        self.assertEqual(procs[2]["command"], "[irq/56-ehci_hcd]")
+        self.assertLess(procs[3]["mem_pct"], 5.0)  # RSS 56MB/2GB ~2.8%, not bloated 29% VSZ
+
+        by_mem = _sort_processes(procs, sort_key="mem", reverse=False)
+        self.assertEqual([p["pid"] for p in by_mem], [25032, 344, 25141, 99])
+        by_pid_asc = _sort_processes(procs, sort_key="pid", reverse=True)
+        self.assertEqual([p["pid"] for p in by_pid_asc], [99, 344, 25032, 25141])
+
+        state: dict = {}
+        fake_proc = mock.Mock(returncode=0, stdout=rich_out, stderr="")
+        with mock.patch("mpc_monitor.subprocess.run", return_value=fake_proc):
+            _probe_mpc_system({"id": "mpc-system", "config": {"host": "root@mpc-live.local"}}, state)
+            _probe_mpc_system({"id": "mpc-system", "config": {"host": "root@mpc-live.local"}}, state)
+        hist = state["metrics"]["history"]
+        self.assertEqual(len(hist["cpu_total"]), 2)
+        self.assertEqual(len(hist["cpu_cores"]), 4)
+        self.assertEqual(len(hist["net_rx_sec"]), 2)
+
+        braille = _render_braille_chart([[10, 40, 80], [20, 60, 30]], width=12, height=4, max_val=100.0)
+        self.assertEqual(len(braille), 4)
+        self.assertEqual(len(braille[0]), 12)
+        self.assertTrue(any(cell[1] >= 0 and ord(cell[0]) >= 0x2800 for row in braille for cell in row))
+
+        donut = _render_braille_donut(50.0, width=8, height=4)
+        self.assertEqual(len(donut), 4)
+        self.assertTrue(any(cell[1] == 1 for row in donut for cell in row))
+        self.assertTrue(any(cell[1] == 0 for row in donut for cell in row))
+
+        spark = _render_sparkline([0, 25, 50, 100], width=6)
+        self.assertEqual(len(spark), 6)
+        self.assertTrue(spark.endswith("█"))
+
+        # Verify curses --dash view renders & handles sort keys (c, m, p), view switch (1), and quit (q)
+        with tempfile.TemporaryDirectory() as td:
+            tjson = Path(td) / "dash_targets.json"
+            tjson.write_text('{"version": 1, "targets": []}', encoding="utf-8")
+            pid, fd = pty.fork()
+            if pid == 0:
+                os.environ["TERM"] = "xterm-256color"
+                os.execvp(sys.executable, [sys.executable, str(HERE / "mpc_monitor.py"), "--dash", "--targets", str(tjson)])
+            try:
+                fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 136, 0, 0))
+                out = bytearray()
+                step = 0
+                exit_code = None
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    r, _, _ = select.select([fd], [], [], 0.1)
+                    if r:
+                        try:
+                            out.extend(os.read(fd, 4096))
+                        except OSError:
+                            pass
+                    if step == 0 and b"DASH" in out:
+                        os.write(fd, b"cmp1")
+                        step = 1
+                    elif step == 1:
+                        time.sleep(0.1)
+                        os.write(fd, b"q")
+                        step = 2
+                    wpid, status = os.waitpid(pid, os.WNOHANG)
+                    if wpid:
+                        exit_code = os.waitstatus_to_exitcode(status)
+                        break
+                if exit_code is None:
+                    os.kill(pid, 9)
+                    os.waitpid(pid, 0)
+                    self.fail("curses --dash TUI did not exit cleanly within 5s")
+                self.assertEqual(exit_code, 0)
+                self.assertIn(b"MPC LIVE", out)
+                self.assertIn(b"DASH", out)
+            finally:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+
+class TestBootAnim(unittest.TestCase):
+    def test_boot_anim_build_and_render(self) -> None:
+        boot_dir = HERE / "boot_anim"
+        script = boot_dir / "build_and_deploy_boot_anim.sh"
+        self.assertTrue(script.is_file(), f"missing build script: {script}")
+
+        res = subprocess.run(
+            ["bash", str(script), "--build-only"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(res.returncode, 0, msg=res.stdout + "\n" + res.stderr)
+
+        build_dir = boot_dir / "build"
+        host_bin = build_dir / "mpc_boot_anim_host"
+        arm_bin = build_dir / "mpc_boot_anim"
+        arm_so = build_dir / "libmpc_boot_splash.so"
+        frame0 = build_dir / "boot_ascii_frame0.bgra"
+        for p in (host_bin, arm_bin, arm_so, frame0):
+            self.assertTrue(p.is_file(), f"missing build artifact: {p}")
+
+        raw = frame0.read_bytes()
+        self.assertEqual(len(raw), 800 * 1280 * 4)
+        # Top-left logical corner maps to physical (0, 1279): pitch-black opaque ARGB (0xFF000000 LE)
+        self.assertEqual(raw[0:4], b"\x00\x00\x00\xff")
+        # Non-black bright glyphs present in ACV8 Frame 0
+        nonblack = sum(1 for i in range(0, len(raw), 16) if raw[i] or raw[i + 1] or raw[i + 2])
+        self.assertGreater(nonblack, 50)
+
+        # ANSI preview at 68% shows toothy grin glyphs and real progress bar
+        p68 = subprocess.run(
+            [str(host_bin), "--ansi", "--progress", "0.68"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(p68.returncode, 0)
+        self.assertIn("68%", p68.stdout)
+        self.assertIn("V", p68.stdout)
+        self.assertIn("^", p68.stdout)
+        self.assertIn("MPC LIVE // HAKAI OS", p68.stdout)
+
+        # ANSI preview at 100% shows finale state + celebratory beatmaker splash
+        p100 = subprocess.run(
+            [str(host_bin), "--ansi", "--progress", "1.00"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(p100.returncode, 0)
+        self.assertIn("100%", p100.stdout)
+        self.assertIn("MPC LIVE READY", p100.stdout)
+        self.assertIn("BEAT MACHINE ARMED -- DROP THE NEEDLE!", p100.stdout)
+
+        # Integration configs in place
+        launch_txt = (HERE / "launch-mpc.sh").read_text(encoding="utf-8")
+        self.assertIn("libmpc_boot_splash.so", launch_txt)
+        self.assertIn("mpc_boot_anim", launch_txt)
+        art_hdr = (boot_dir / "mpc_boot_ascii_art.h").read_text(encoding="utf-8")
+        self.assertNotIn("ASCII BOOT SEQUENCE", art_hdr)
+        self.assertTrue((boot_dir / "mpc-boot-anim.service").is_file())
+        self.assertTrue((boot_dir / "10-boot-anim.conf").is_file())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-MPC_HOST="${MPC_HOST:-10.101.132.233}"
+MPC_HOST="${MPC_HOST:-mpc-live.local}"
 MPC_USER="${MPC_USER:-root}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

@@ -49,7 +49,7 @@ def main() -> int:
         return sub_rc
 
     parser = argparse.ArgumentParser(description="Control Akai MPC Live hardware over libmpc_hw_bridge (:6731).")
-    parser.add_argument("--host", default=None, help="MPC IP (default: env MPC_HOST or 10.101.132.233)")
+    parser.add_argument("--host", default=None, help="MPC host/IP (default: env MPC_HOST or mpc-live.local)")
     parser.add_argument("--port", type=int, default=None, help="Bridge TCP port (default: 6731)")
 
     sub = parser.add_subparsers(dest="cmd", required=True)

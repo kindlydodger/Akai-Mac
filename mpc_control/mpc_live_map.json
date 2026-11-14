@@ -4,7 +4,7 @@
     "hw_port": "hw:1,0,1",
     "bridge_port": 6731,
     "remote_port": 6720,
-    "default_host": "10.101.132.233",
+    "default_host": "mpc-live.local",
     "midi_patterns_dir": "/media/okcomputer/MidiPatterns",
     "reserved_unsafe_notes": [88],
     "notes": "Verified live against Akai MPC Live Mk1 (Hakai 3.10 / MPC 3.x) via libmpc_hw_bridge.so on hw:1,0,1. Note 0x58 (88) exits /usr/bin/MPC and is guarded."

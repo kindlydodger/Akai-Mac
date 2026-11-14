@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import http.client
+import ipaddress
 import json
 import os
 import shlex
@@ -23,6 +24,45 @@ ACTIVITY_LOG_PATH = Path(
 )
 _ACTIVITY_LOCK = threading.Lock()
 _ACTIVITY_MAX_BYTES = 512 * 1024
+_HOST_CACHE_LOCK = threading.Lock()
+_HOST_IP_CACHE: Dict[str, Tuple[str, float]] = {}
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip())
+        return True
+    except ValueError:
+        return False
+
+
+def invalidate_mpc_host_cache(host: Optional[str] = None) -> None:
+    """Clear cached IPv4 resolution for one host or all hosts."""
+    with _HOST_CACHE_LOCK:
+        if host is None:
+            _HOST_IP_CACHE.clear()
+        else:
+            _HOST_IP_CACHE.pop(host.strip(), None)
+
+
+def resolve_mpc_host(host: str, force_refresh: bool = False, ttl_s: float = 15.0) -> str:
+    """Resolve hostnames (such as mpc-live.local) via IPv4 to avoid macOS AAAA mDNS stalls."""
+    cleaned = (host or "").strip() or "mpc-live.local"
+    if _is_ip_literal(cleaned):
+        return cleaned
+    now = time.monotonic()
+    with _HOST_CACHE_LOCK:
+        cached = _HOST_IP_CACHE.get(cleaned)
+        if not force_refresh and cached is not None and (now - cached[1]) < ttl_s:
+            return cached[0]
+    try:
+        # AF_INET avoids ~1.7s mDNS IPv6 AAAA wait when connecting to .local targets.
+        ip = socket.getaddrinfo(cleaned, None, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+    except OSError:
+        return cleaned
+    with _HOST_CACHE_LOCK:
+        _HOST_IP_CACHE[cleaned] = (ip, time.monotonic())
+    return ip
 
 
 def emit_activity(
@@ -272,7 +312,7 @@ class MpcBridgeClient:
     ) -> None:
         self.map = MpcMap(map_path)
         meta = self.map.data.get("meta", {})
-        self.host = host or os.environ.get("MPC_HOST") or meta.get("default_host", "10.101.132.233")
+        self.host = host or os.environ.get("MPC_HOST") or meta.get("default_host", "mpc-live.local")
         self.port = int(port or os.environ.get("MPC_BRIDGE_PORT") or meta.get("bridge_port", 6731))
         self.remote_port = int(remote_port or os.environ.get("MPC_REMOTE_PORT") or meta.get("remote_port", 6720))
         self.timeout = timeout
@@ -280,15 +320,26 @@ class MpcBridgeClient:
         self._http_lock = threading.Lock()
         self._http_conn: Optional[http.client.HTTPConnection] = None
 
+    def resolve_host(self, force_refresh: bool = False) -> str:
+        """Resolve configured MPC host to its active IPv4 address (cached briefly for speed)."""
+        return resolve_mpc_host(self.host, force_refresh=force_refresh)
+
     def _log(self, action: str, detail: str = "", level: str = "info", extra: Optional[Dict[str, Any]] = None) -> None:
         emit_activity(self.source, action, detail, target=f"mpc:{self.host}", level=level, extra=extra)
 
     def _remote_request(self, method: str, path: str, body: Optional[bytes] = None, headers: Optional[Dict[str, str]] = None) -> bytes:
         with self._http_lock:
+            is_literal = _is_ip_literal(self.host)
             for attempt in range(2):
+                target = self.resolve_host(force_refresh=(attempt == 1 and not is_literal))
                 try:
-                    if self._http_conn is None:
-                        self._http_conn = http.client.HTTPConnection(self.host, self.remote_port, timeout=self.timeout)
+                    if self._http_conn is None or getattr(self._http_conn, "host", None) != target:
+                        if self._http_conn is not None:
+                            try:
+                                self._http_conn.close()
+                            except Exception:
+                                pass
+                        self._http_conn = http.client.HTTPConnection(target, self.remote_port, timeout=self.timeout)
                     self._http_conn.request(method, path, body=body, headers=headers or {})
                     resp = self._http_conn.getresponse()
                     data = resp.read()
@@ -307,10 +358,19 @@ class MpcBridgeClient:
             return b""
 
     def _connect(self) -> Tuple[socket.socket, Any]:
-        sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        fh = sock.makefile("rwb", buffering=0)
-        return sock, fh
+        is_literal = _is_ip_literal(self.host)
+        attempts = 1 if is_literal else 2
+        for attempt in range(attempts):
+            target = self.resolve_host(force_refresh=(attempt == 1))
+            try:
+                sock = socket.create_connection((target, self.port), timeout=self.timeout)
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                fh = sock.makefile("rwb", buffering=0)
+                return sock, fh
+            except OSError:
+                if attempt + 1 >= attempts:
+                    raise
+        raise RuntimeError("Failed to connect to mpc_hw_bridge")
 
     def _cmd(self, fh: Any, line: str) -> str:
         fh.write((line + "\n").encode("utf-8"))
@@ -342,7 +402,14 @@ class MpcBridgeClient:
             fh.close()
             sock.close()
         parts = raw.split()
-        info: Dict[str, Any] = {"raw": raw, "host": self.host, "bridge_port": self.port, "ok": raw.startswith("OK")}
+        resolved_ip = self.resolve_host()
+        info: Dict[str, Any] = {
+            "raw": raw,
+            "host": self.host,
+            "resolved_ip": resolved_ip,
+            "bridge_port": self.port,
+            "ok": raw.startswith("OK"),
+        }
         for token in parts[3:]:
             if "=" in token:
                 k, v = token.split("=", 1)
@@ -350,7 +417,7 @@ class MpcBridgeClient:
         info["ready"] = bool(info.get("ok") and info.get("priv_in") not in (None, "(nil)", "0x0"))
         if check_screen:
             try:
-                url = f"http://{self.host}:{self.remote_port}/screen?half=1"
+                url = f"http://{resolved_ip}:{self.remote_port}/screen?half=1"
                 with urllib.request.urlopen(url, timeout=2.0) as resp:
                     sig = resp.read(8)
                     info["screen_http"] = resp.status == 200 and sig.startswith(b"\x89PNG")
