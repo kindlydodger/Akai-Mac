@@ -12,6 +12,7 @@ import locale
 import math
 import os
 import shlex
+import signal
 import socket
 import subprocess
 import sys
@@ -1671,7 +1672,10 @@ def _prompt_line(stdscr: Any, prompt: str, colors: Dict[str, int], initial: str 
         stdscr.refresh()
         buf: List[str] = list(initial)
         while True:
-            ch = stdscr.get_wch()
+            try:
+                ch = stdscr.get_wch()
+            except (curses.error, EOFError, KeyboardInterrupt):
+                return None
             if ch in ("\n", "\r", curses.KEY_ENTER):
                 return "".join(buf).strip()
             if ch == "\x1b":
@@ -2365,7 +2369,20 @@ def run_curses_tui(engine: MonitorEngine, initial_view: str = "overview") -> int
             flash = f"Dash sort: {col.upper()} ({'asc ▲' if proc_reverse else 'desc ▼'})"
 
         try:
-            while True:
+            stop_requested = False
+
+            def _on_term_sig(_signum: int, _frame: Any) -> None:
+                nonlocal stop_requested
+                stop_requested = True
+
+            prev_hup = signal.getsignal(signal.SIGHUP) if hasattr(signal, "SIGHUP") else None
+            prev_term = signal.getsignal(signal.SIGTERM)
+            if hasattr(signal, "SIGHUP"):
+                signal.signal(signal.SIGHUP, _on_term_sig)
+            signal.signal(signal.SIGTERM, _on_term_sig)
+            fast_err_streak = 0
+
+            while not stop_requested:
                 selected, proc_selected = _draw_tui(
                     stdscr,
                     engine,
@@ -2378,9 +2395,20 @@ def run_curses_tui(engine: MonitorEngine, initial_view: str = "overview") -> int
                     proc_sort=proc_sort,
                     proc_reverse=proc_reverse,
                 )
+                t_before = time.monotonic()
                 key = stdscr.getch()
                 if key == -1:
+                    if stop_requested:
+                        break
+                    # When PTY/stdin disconnects (POLLHUP/EOF), getch() returns -1 in <1ms ignoring timeout(250).
+                    if (time.monotonic() - t_before) < 0.05:
+                        fast_err_streak += 1
+                        if fast_err_streak >= 6:
+                            break
+                    else:
+                        fast_err_streak = 0
                     continue
+                fast_err_streak = 0
                 rows, _ = engine.snapshot()
                 sys_m = _find_system_metrics(rows)
                 proc_count = len((sys_m or {}).get("processes") or [])
@@ -2465,6 +2493,9 @@ def run_curses_tui(engine: MonitorEngine, initial_view: str = "overview") -> int
                     except Exception as exc:
                         flash = f"Error: {exc}"
         finally:
+            if hasattr(signal, "SIGHUP") and prev_hup is not None:
+                signal.signal(signal.SIGHUP, prev_hup)
+            signal.signal(signal.SIGTERM, prev_term)
             engine.stop()
         return 0
 

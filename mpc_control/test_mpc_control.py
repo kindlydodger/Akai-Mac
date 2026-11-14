@@ -192,9 +192,6 @@ class TestMpcControl(unittest.TestCase):
     def test_desktop_app_bundle_and_tui_pty(self) -> None:
         import os
         import plistlib
-        import pty
-        import select
-        import time
         from build_desktop_app import build_desktop_app, render_mpc_icon_png
 
         png = render_mpc_icon_png(128)
@@ -212,47 +209,20 @@ class TestMpcControl(unittest.TestCase):
             self.assertIn("mpc_monitor.py", launcher.read_text(encoding="utf-8"))
 
             # Verify curses 256-color MPC palette TUI renders & quits cleanly over PTY
-            import fcntl
-            import struct
-            import termios
-
             tjson = root / "tui_targets.json"
             tjson.write_text('{"version": 1, "targets": []}', encoding="utf-8")
-            pid, fd = pty.fork()
-            if pid == 0:
-                os.environ["TERM"] = "xterm-256color"
-                os.execvp(sys.executable, [sys.executable, str(HERE / "mpc_monitor.py"), "--targets", str(tjson)])
-            try:
-                fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 110, 0, 0))
-                out_chunks = bytearray()
-                sent_q = False
-                exit_code = None
-                deadline = time.monotonic() + 4.0
-                while time.monotonic() < deadline:
-                    r, _, _ = select.select([fd], [], [], 0.1)
-                    if r:
-                        try:
-                            out_chunks.extend(os.read(fd, 4096))
-                        except OSError:
-                            pass
-                    if b"MPC LIVE" in out_chunks and not sent_q:
-                        os.write(fd, b"q")
-                        sent_q = True
-                    wpid, status = os.waitpid(pid, os.WNOHANG)
-                    if wpid:
-                        exit_code = os.waitstatus_to_exitcode(status)
-                        break
-                if exit_code is None:
-                    os.kill(pid, 9)
-                    os.waitpid(pid, 0)
-                    self.fail("curses TUI did not exit cleanly within 4s")
-                self.assertEqual(exit_code, 0)
-                self.assertIn(b"MPC LIVE", out_chunks)
-            finally:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+            exit_code, out_chunks = _run_monitor_pty_session(
+                tjson, [], b"MPC LIVE", b"q", rows=32, cols=110, timeout_s=4.0
+            )
+            self.assertEqual(exit_code, 0)
+            self.assertIn(b"MPC LIVE", out_chunks)
+
+            # Verify PTY hangup/EOF exits cleanly instead of spinning at 100% CPU
+            eof_code, eof_out = _run_monitor_pty_session(
+                tjson, [], b"MPC LIVE", None, rows=32, cols=110, timeout_s=3.0, close_fd_early=True
+            )
+            self.assertIn(eof_code, (0, -1, 129))
+            self.assertIn(b"MPC LIVE", eof_out)
 
     def test_audio_beat_key_stretch_chop(self) -> None:
         import math
@@ -475,6 +445,88 @@ class TestMpcControl(unittest.TestCase):
                     os.environ.pop("MPC_ACTIVITY_LOG", None)
                 else:
                     os.environ["MPC_ACTIVITY_LOG"] = old_env
+
+
+def _run_monitor_pty_session(
+    targets_path: Path,
+    cli_args: list[str],
+    wait_for_token: bytes,
+    send_keys: bytes | None,
+    *,
+    rows: int = 36,
+    cols: int = 120,
+    timeout_s: float = 5.0,
+    close_fd_early: bool = False,
+) -> tuple[int, bytes]:
+    """Run mpc_monitor in an isolated PTY and guarantee child reaping on any exit."""
+    import fcntl
+    import os
+    import pty
+    import select
+    import signal
+    import struct
+    import termios
+    import time
+
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ["TERM"] = "xterm-256color"
+        os.execvp(
+            sys.executable,
+            [sys.executable, str(HERE / "mpc_monitor.py"), "--targets", str(targets_path), *cli_args],
+        )
+
+    out_chunks = bytearray()
+    exit_code: int | None = None
+    fd_open = True
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        acted = False
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if fd_open:
+                r, _, _ = select.select([fd], [], [], 0.1)
+                if r:
+                    try:
+                        chunk = os.read(fd, 4096)
+                        if chunk:
+                            out_chunks.extend(chunk)
+                    except OSError:
+                        pass
+                if not acted and wait_for_token in out_chunks:
+                    acted = True
+                    if close_fd_early:
+                        os.close(fd)
+                        fd_open = False
+                    elif send_keys:
+                        for ch in [send_keys[:-1], send_keys[-1:]]:
+                            if ch:
+                                os.write(fd, ch)
+                                time.sleep(0.05)
+            else:
+                time.sleep(0.05)
+            wpid, status = os.waitpid(pid, os.WNOHANG)
+            if wpid:
+                exit_code = os.waitstatus_to_exitcode(status)
+                break
+        if exit_code is None:
+            raise AssertionError(f"mpc_monitor PTY session did not exit cleanly within {timeout_s}s")
+        return exit_code, bytes(out_chunks)
+    finally:
+        if fd_open:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if exit_code is None:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+            try:
+                os.waitpid(pid, 0)
+            except OSError:
+                pass
 
 
 class TestAuditRegressions(unittest.TestCase):
@@ -1276,13 +1328,6 @@ Filesystem Size Used Available Capacity Mounted on
         self.assertEqual(state["metrics"]["ip"], "10.104.58.233")
 
     def test_mpc_gtop_widgets_and_pty_view(self) -> None:
-        import fcntl
-        import os
-        import pty
-        import select
-        import struct
-        import termios
-        import time
         from unittest import mock
         from mpc_monitor import (
             _human_bytes,
@@ -1392,46 +1437,12 @@ Filesystem Size Used Available Capacity Mounted on
         with tempfile.TemporaryDirectory() as td:
             tjson = Path(td) / "dash_targets.json"
             tjson.write_text('{"version": 1, "targets": []}', encoding="utf-8")
-            pid, fd = pty.fork()
-            if pid == 0:
-                os.environ["TERM"] = "xterm-256color"
-                os.execvp(sys.executable, [sys.executable, str(HERE / "mpc_monitor.py"), "--dash", "--targets", str(tjson)])
-            try:
-                fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 136, 0, 0))
-                out = bytearray()
-                step = 0
-                exit_code = None
-                deadline = time.monotonic() + 5.0
-                while time.monotonic() < deadline:
-                    r, _, _ = select.select([fd], [], [], 0.1)
-                    if r:
-                        try:
-                            out.extend(os.read(fd, 4096))
-                        except OSError:
-                            pass
-                    if step == 0 and b"DASH" in out:
-                        os.write(fd, b"cmp1")
-                        step = 1
-                    elif step == 1:
-                        time.sleep(0.1)
-                        os.write(fd, b"q")
-                        step = 2
-                    wpid, status = os.waitpid(pid, os.WNOHANG)
-                    if wpid:
-                        exit_code = os.waitstatus_to_exitcode(status)
-                        break
-                if exit_code is None:
-                    os.kill(pid, 9)
-                    os.waitpid(pid, 0)
-                    self.fail("curses --dash TUI did not exit cleanly within 5s")
-                self.assertEqual(exit_code, 0)
-                self.assertIn(b"MPC LIVE", out)
-                self.assertIn(b"DASH", out)
-            finally:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+            exit_code, out = _run_monitor_pty_session(
+                tjson, ["--dash"], b"DASH", b"cmp1q", rows=40, cols=136, timeout_s=5.0
+            )
+            self.assertEqual(exit_code, 0)
+            self.assertIn(b"MPC LIVE", out)
+            self.assertIn(b"DASH", out)
 
 
 class TestBootAnim(unittest.TestCase):
